@@ -4,22 +4,31 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Process
 import android.provider.MediaStore
 import com.ink.gallery.data.model.Bucket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class BucketRepository @Inject constructor(
-    private val contentResolver: ContentResolver
+    private val contentResolver: ContentResolver,
+    private val photoRepository: PhotoRepository
 ) {
 
     /**
-     * 按「相册内最新一张照片的修改时间」倒序返回所有相册。
-     * MediaStore 不支持 GROUP BY，这里一次性遍历并聚合，取每个 bucket 的第一张（最新的）作为封面。
+     * 返回所有相册，按**相册目录自身的修改时间（mtime）**倒序——与果仁相册等主流相册一致：
+     * 目录里有过增删/重命名的相册（比如刚往里搬过照片）会排到最前。
+     *
+     * 注意根目录（`relativePath` 为 `/`）在 FUSE 上层 mtime 长期不变，
+     * 所以「根目录」相册会稳定排在后面。
+     *
+     * MediaStore 不支持 GROUP BY，这里一次性遍历并聚合，
+     * 查询按照片修改时间倒序，取每个 bucket 的第一张（最新的）作为封面。
      */
     suspend fun getBuckets(): List<Bucket> = withContext(Dispatchers.IO) {
         val buckets = LinkedHashMap<Long, Bucket>()
@@ -65,7 +74,21 @@ class BucketRepository @Inject constructor(
             }
         }
 
-        buckets.values.map { bucket -> bucket.copy(count = counts[bucket.id] ?: 0) }
+        buckets.values
+            .map { bucket -> bucket.copy(count = counts[bucket.id] ?: 0) }
+            .sortedByDescending { albumTime(it.relativePath) }
+    }
+
+    /**
+     * 相册的排序时间：目录 mtime 与本进程内搬动过的时间取较大值。
+     *
+     * 只读 mtime 不够：MediaProvider 改完数据库后真正落盘会滞后，而且新目录的 mtime
+     * 还会被 FUSE 属性缓存压住几秒，刚搬完照片的相册就会停在旧位置。
+     */
+    private fun albumTime(relativePath: String): Long {
+        val dir = File(Environment.getExternalStorageDirectory(), relativePath.trim('/'))
+        val touched = photoRepository.albumTouchedAt(dir.absolutePath.trimEnd('/'))
+        return maxOf(dir.lastModified(), touched)
     }
 
     suspend fun getBucketName(bucketId: Long): String? = withContext(Dispatchers.IO) {

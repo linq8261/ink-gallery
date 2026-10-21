@@ -35,6 +35,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.WeakHashMap
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -65,6 +66,17 @@ class PhotoRepository @Inject constructor(
 
     private val pagingSources = WeakHashMap<PhotoPagingSource, Unit>()
     private var invalidateJob: Job? = null
+
+    /**
+     * 本进程内被移动过的相册目录（绝对路径 → 时间戳）。
+     *
+     * 相册排序读的是目录 mtime，但 MediaProvider 改完数据库后真正落盘有延迟，
+     * 而且新目录的 mtime 还会被 FUSE 属性缓存压住几秒，导致刚搬完照片的相册
+     * 仍排在旧位置。这里记下自己搬动过的目录，排序时与 mtime 取较大值。
+     */
+    private val albumTouchedAt = ConcurrentHashMap<String, Long>()
+
+    fun albumTouchedAt(absoluteDirectory: String): Long = albumTouchedAt[absoluteDirectory] ?: 0L
 
     /** 媒体库或照片归属变化时发出，供相册页等界面刷新自己的数据 */
     private val _mediaChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -129,7 +141,10 @@ class PhotoRepository @Inject constructor(
                     val actual = queryRelativePath(photo.uri)
                     when {
                         actual.trim('/') == directory.trim('/') -> {
-                            invalidate()
+                            markAlbumTouched(photo, directory)
+                            applyMovedPhotoToCache(photo.id)
+                            _mediaChanges.tryEmit(Unit)
+                            invalidatePagingSources()
                             MovePhotoResult.Moved
                         }
 
@@ -202,8 +217,22 @@ class PhotoRepository @Inject constructor(
             null,
             null
         )
+        markAlbumTouched(source.parent, targetDir.absolutePath)
         invalidate()
         return MovePhotoResult.Moved
+    }
+
+    /** 记下这次移动涉及的源/目标目录，供相册排序使用 */
+    private fun markAlbumTouched(photo: PhotoItem, targetDirectory: String) {
+        val root = Environment.getExternalStorageDirectory()
+        markAlbumTouched(File(photo.path).parent, File(root, targetDirectory.trim('/')).absolutePath)
+    }
+
+    private fun markAlbumTouched(vararg directories: String?) {
+        val now = System.currentTimeMillis()
+        directories.filterNotNull().forEach { path ->
+            albumTouchedAt[File(path).absolutePath.trimEnd('/')] = now
+        }
     }
 
     /** 目标目录里已有同名文件时，追加 -1、-2 后缀 */
@@ -348,10 +377,30 @@ class PhotoRepository @Inject constructor(
         cachedPhotos = null
         cachedGroups = null
         _mediaChanges.tryEmit(Unit)
+        invalidatePagingSources()
+    }
+
+    /** 只让分页源重新加载；缓存仍然有效时重载走内存切片，毫秒级完成 */
+    private fun invalidatePagingSources() {
         val sources = synchronized(pagingSources) {
             pagingSources.keys.toList().also { pagingSources.clear() }
         }
         sources.forEach { it.invalidate() }
+    }
+
+    /**
+     * 自己移动成功后只把这一行在缓存里就地更新，不整表重查，
+     * 相册详情页重新加载时就是内存切片，不会再出现整屏转圈。
+     */
+    private fun applyMovedPhotoToCache(photoId: Long) {
+        val current = cachedPhotos ?: return
+        val updated = queryPhotos(
+            selection = "$ID = ?",
+            selectionArgs = arrayOf(photoId.toString())
+        ).firstOrNull() ?: return
+        val next = (current.filterNot { it.id == photoId } + updated).sortedWith(PHOTO_ORDER)
+        cachedPhotos = next
+        cachedGroups = next.groupBy { it.bucketId }
     }
 
     private companion object {
@@ -400,6 +449,10 @@ class PhotoRepository @Inject constructor(
         }.toTypedArray()
 
         const val SORT_ORDER = "$DATE_TAKEN DESC, $ID DESC"
+
+        /** 与 [SORT_ORDER] 一致的内存排序（从新到旧） */
+        val PHOTO_ORDER: Comparator<PhotoItem> =
+            compareByDescending<PhotoItem> { it.dateTaken }.thenByDescending { it.id }
     }
 }
 
