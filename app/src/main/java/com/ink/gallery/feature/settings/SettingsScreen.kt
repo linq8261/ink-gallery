@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -23,7 +24,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.ink.gallery.ui.component.rememberHasFullAccess
+import com.ink.gallery.util.StorageAccess
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +35,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAbout: () -> Unit
 ) {
+    val context = LocalContext.current
+    // 从系统设置页返回时自动刷新权限状态
+    val hasFullAccess = rememberHasFullAccess()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -51,6 +59,38 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { StorageAccess.openSettings(context) }
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FolderOpen,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = "所有文件访问权限", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = if (hasFullAccess) {
+                            "已开启，可以把照片移动到任意相册"
+                        } else {
+                            "未开启，只能移到 DCIM / Pictures 下的相册"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            HorizontalDivider()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

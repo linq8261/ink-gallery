@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.net.Uri
 import android.os.Build
+import android.os.Process
 import android.provider.MediaStore
 import com.ink.gallery.data.model.Bucket
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +33,16 @@ class BucketRepository @Inject constructor(
             "$DATE_MODIFIED DESC, $ID DESC"
         )?.use { cursor ->
             val relativePathIndex = cursor.getColumnIndex(RELATIVE_PATH)
+            val dataIndex = cursor.getColumnIndex(DATA_PATH)
             while (cursor.moveToNext()) {
+                // 跳过指向其它多用户目录（/storage/emulated/995 之类）的幽灵记录，
+                // 否则同一目录会因为多出一条记录而在相册页显示成两个同名相册
+                if (dataIndex >= 0) {
+                    val data = cursor.getString(dataIndex).orEmpty()
+                    if (data.startsWith(OTHER_USER_PREFIX) && !data.startsWith(USER_STORAGE_PREFIX)) {
+                        continue
+                    }
+                }
                 val photoId = cursor.getLong(0)
                 val bucketId = cursor.getLong(1)
                 val bucketName = cursor.getString(2).orEmpty().ifEmpty { DEFAULT_BUCKET_NAME }
@@ -78,6 +88,13 @@ class BucketRepository @Inject constructor(
         const val BUCKET_DISPLAY_NAME = MediaStore.Images.Media.BUCKET_DISPLAY_NAME
         const val DATE_MODIFIED = MediaStore.Images.Media.DATE_MODIFIED
         const val RELATIVE_PATH = MediaStore.MediaColumns.RELATIVE_PATH
+        const val DATA_PATH = MediaStore.MediaColumns.DATA
+
+        /** 当前用户的共享存储前缀，如 /storage/emulated/0/ */
+        val USER_STORAGE_PREFIX: String = "/storage/emulated/${Process.myUid() / 100000}/"
+
+        /** 其它多用户的共享存储前缀，如 /storage/emulated/995/ */
+        const val OTHER_USER_PREFIX = "/storage/emulated/"
 
         /** 存储根目录（/storage/emulated/0/）的 bucket_display_name 为 NULL，这里兜底命名 */
         const val DEFAULT_BUCKET_NAME = "根目录"
@@ -88,6 +105,8 @@ class BucketRepository @Inject constructor(
             add(BUCKET_DISPLAY_NAME)
             add(DATE_MODIFIED)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(RELATIVE_PATH)
+            // _data 只在拿到「所有文件访问权限」时可读，用于识别幽灵记录
+            add(DATA_PATH)
         }.toTypedArray()
     }
 }

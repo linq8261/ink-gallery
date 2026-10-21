@@ -22,6 +22,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -34,6 +35,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.Bucket
 import com.ink.gallery.util.DateFormatter
+import com.ink.gallery.util.StorageAccess
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +47,8 @@ fun MoveToBucketSheet(
     onSelect: (Bucket) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val context = LocalContext.current
+    val hasFullAccess = remember { StorageAccess.hasFullAccess() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -56,6 +60,17 @@ fun MoveToBucketSheet(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
             )
+            if (!hasFullAccess) {
+                Text(
+                    text = "未开启「所有文件访问权限」，只能移到 DCIM / Pictures 下的相册 → 去开启",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { StorageAccess.openSettings(context) }
+                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                )
+            }
             when {
                 isLoading -> Box(
                     modifier = Modifier

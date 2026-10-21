@@ -9,6 +9,8 @@
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- 所有文件访问权限：用于把照片移动到 DCIM / Pictures 之外的目录（需用户手动开启） -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <application
         android:name=".InkGalleryApplication"

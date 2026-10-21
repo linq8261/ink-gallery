@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.feature.buckets.BucketsScreen
 import com.ink.gallery.feature.photos.PhotosScreen
+import com.ink.gallery.ui.component.FullAccessBanner
 
 private const val PAGE_COUNT = 2
 private const val PAGE_BUCKETS = 0
@@ -78,6 +79,8 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             PageIndicator(pagerState = pagerState, pageCount = PAGE_COUNT)
+
+            FullAccessBanner()
 
             HorizontalPager(
                 state = pagerState,

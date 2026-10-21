@@ -1,7 +1,7 @@
 package com.ink.gallery.data.model
 
 import android.net.Uri
-import android.os.Build
+import com.ink.gallery.util.StorageAccess
 
 data class Bucket(
     val id: Long,
@@ -16,14 +16,10 @@ data class Bucket(
     /**
      * 这个相册能否作为「移动照片」的目标。
      *
-     * Android 11+ 的 MediaStore 只允许把图片写进 `DCIM` / `Pictures` 顶层目录之下，
-     * 存储根目录（[relativePath] 为 `/`）和自定义顶层目录（如 `111sync/`）都会被
-     * 系统以 `IllegalArgumentException: Primary directory ... not allowed` 拒绝。
+     * 有「所有文件访问权限」时任何目录都能进；没有时 Android 11+ 的 MediaStore
+     * 只放行 `DCIM` / `Pictures` 顶层目录，存储根目录和自定义顶层目录（如 `111sync/`）
+     * 都会被系统以 `Primary directory ... not allowed` 拒绝。
      */
     val canReceiveMovedPhoto: Boolean
-        get() {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return true
-            val topLevel = relativePath.trim('/').substringBefore('/')
-            return topLevel == "DCIM" || topLevel == "Pictures"
-        }
+        get() = StorageAccess.canReceiveImage(relativePath)
 }

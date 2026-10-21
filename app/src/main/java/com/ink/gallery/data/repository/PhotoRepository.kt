@@ -8,15 +8,18 @@ import android.content.Context
 import android.content.IntentSender
 import android.database.ContentObserver
 import android.database.Cursor
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.data.paging.PhotoPagingSource
+import com.ink.gallery.util.StorageAccess
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.WeakHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,7 +50,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class PhotoRepository @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
     private val contentResolver: ContentResolver
 ) {
 
@@ -92,7 +96,12 @@ class PhotoRepository @Inject constructor(
     }
 
     /**
-     * 把照片移动到目标相册（本质是改 MediaStore 记录的 relative_path）。
+     * 把照片移动到目标相册。
+     *
+     * 优先改 MediaStore 的 `relative_path`。没有「所有文件访问权限」时，Android 11+
+     * 只放行 `DCIM` / `Pictures` 下的目录，其余会抛
+     * `IllegalArgumentException: Primary directory ... not allowed`；
+     * 拿到该权限后改走文件搬运（rename）兜底，任何目录都能进。
      *
      * 修改非本 App 创建的照片时系统会拦截：Android 11+ 通过
      * [MediaStore.createWriteRequest] 弹授权框；Android 10 抛
@@ -100,7 +109,7 @@ class PhotoRepository @Inject constructor(
      * 两者都通过 [MovePhotoResult.NeedPermission] 把授权 intent 交给界面启动，
      * 授权后重试本方法即可成功。
      *
-     * 注意根目录相册（MediaStore 里 relative_path 为 `/`，界面上名为「其他」的那类）：
+     * 注意根目录相册（MediaStore 里 relative_path 为 `/`，界面上名为「根目录」）：
      * 必须原样写入 `/`，写空串会被 MediaProvider 静默改写成 `Pictures/`，
      * 照片根本不会进目标相册（update 却返回 1，看上去像成功了）。
      */
@@ -118,11 +127,15 @@ class PhotoRepository @Inject constructor(
                 } else {
                     // update 成功不代表真的挪过去了，落到哪个目录以回查结果为准
                     val actual = queryRelativePath(photo.uri)
-                    if (actual.trim('/') == directory.trim('/')) {
-                        invalidate()
-                        MovePhotoResult.Moved
-                    } else {
-                        MovePhotoResult.Failed(
+                    when {
+                        actual.trim('/') == directory.trim('/') -> {
+                            invalidate()
+                            MovePhotoResult.Moved
+                        }
+
+                        StorageAccess.hasFullAccess() -> moveByFile(photo, directory)
+
+                        else -> MovePhotoResult.Failed(
                             "移动未生效：照片被系统放到了「${actual.ifEmpty { "/" }}」"
                         )
                     }
@@ -148,11 +161,65 @@ class PhotoRepository @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                // MediaProvider 对非法的 relative_path 会抛 IllegalArgumentException，
-                // 这里兜住，避免整个 ViewModel 协程崩掉而界面没有任何提示
-                MovePhotoResult.Failed(e.toMoveFailureMessage())
+                // MediaProvider 对非法的 relative_path 会抛 IllegalArgumentException：
+                // 有全盘权限时改用文件搬运兜底，否则把系统报错翻译成人话
+                if (e is IllegalArgumentException && StorageAccess.hasFullAccess()) {
+                    moveByFile(photo, directory)
+                } else {
+                    MovePhotoResult.Failed(e.toMoveFailureMessage())
+                }
             }
         }
+
+    /**
+     * 直接搬文件（需要有「所有文件访问权限」），搬完通知媒体库重新扫描。
+     * 用于把照片放进 `DCIM` / `Pictures` 之外的目录——这类目标 MediaStore 不允许改。
+     */
+    private fun moveByFile(photo: PhotoItem, targetDirectory: String): MovePhotoResult {
+        val source = File(photo.path)
+        if (photo.path.isEmpty() || !source.exists()) {
+            return MovePhotoResult.Failed("移动失败：找不到原始文件")
+        }
+        val targetDir = File(Environment.getExternalStorageDirectory(), targetDirectory.trim('/'))
+        if (!targetDir.isDirectory && !targetDir.mkdirs()) {
+            return MovePhotoResult.Failed("移动失败：无法创建目标目录")
+        }
+        val displayName = photo.displayName.ifEmpty { source.name }
+        val target = uniqueTarget(targetDir, displayName)
+
+        val moved = source.renameTo(target) || runCatching {
+            // 跨卷或 rename 失败时退回复制 + 删除
+            source.copyTo(target, overwrite = false)
+            source.delete()
+        }.isSuccess
+        if (!moved || !target.exists()) {
+            return MovePhotoResult.Failed("移动失败：没有写入目标目录的权限")
+        }
+
+        MediaScannerConnection.scanFile(
+            context,
+            arrayOf(source.absolutePath, target.absolutePath),
+            null,
+            null
+        )
+        invalidate()
+        return MovePhotoResult.Moved
+    }
+
+    /** 目标目录里已有同名文件时，追加 -1、-2 后缀 */
+    private fun uniqueTarget(dir: File, displayName: String): File {
+        var candidate = File(dir, displayName)
+        if (!candidate.exists()) return candidate
+        val dot = displayName.lastIndexOf('.')
+        val base = if (dot > 0) displayName.substring(0, dot) else displayName
+        val suffix = if (dot > 0) displayName.substring(dot) else ""
+        var index = 1
+        while (candidate.exists()) {
+            candidate = File(dir, "$base-$index$suffix")
+            index++
+        }
+        return candidate
+    }
 
     private fun queryRelativePath(uri: Uri): String =
         contentResolver.query(
@@ -199,13 +266,24 @@ class PhotoRepository @Inject constructor(
             SORT_ORDER
         )?.use { cursor ->
             while (cursor.moveToNext()) {
-                photos += cursor.readPhoto()
+                cursor.readPhoto()?.let { photos += it }
             }
         }
         return photos
     }
 
-    private fun Cursor.readPhoto(): PhotoItem {
+    /**
+     * 读取一行；返回 null 表示这条记录指向别的多用户（/storage/emulated/995 之类），
+     * 当前用户既读不到文件，也会让同一个目录在相册页里裂成两个同名相册。
+     */
+    private fun Cursor.readPhoto(): PhotoItem? {
+        val dataIndex = getColumnIndex(DATA_PATH)
+        if (dataIndex >= 0) {
+            val data = getString(dataIndex).orEmpty()
+            if (data.startsWith(OTHER_USER_PREFIX) && !data.startsWith(USER_STORAGE_PREFIX)) {
+                return null
+            }
+        }
         val id = getLong(getColumnIndexOrThrow(ID))
         val displayName = getString(getColumnIndexOrThrow(DISPLAY_NAME)).orEmpty()
         return PhotoItem(
@@ -291,8 +369,14 @@ class PhotoRepository @Inject constructor(
         const val HEIGHT = MediaStore.Images.Media.HEIGHT
         const val BUCKET_ID = MediaStore.Images.Media.BUCKET_ID
         const val BUCKET_DISPLAY_NAME = MediaStore.Images.Media.BUCKET_DISPLAY_NAME
-        const val RELATIVE_PATH = MediaStore.MediaColumns.RELATIVE_PATH
+        const         val RELATIVE_PATH = MediaStore.MediaColumns.RELATIVE_PATH
         const val DATA_PATH = MediaStore.MediaColumns.DATA
+
+        /** 当前用户的共享存储前缀，如 /storage/emulated/0/ */
+        val USER_STORAGE_PREFIX: String = "/storage/emulated/${Process.myUid() / 100000}/"
+
+        /** 其它多用户的共享存储前缀，如 /storage/emulated/995/ */
+        const val OTHER_USER_PREFIX = "/storage/emulated/"
 
         val PROJECTION: Array<String> = buildList {
             add(ID)
@@ -305,8 +389,14 @@ class PhotoRepository @Inject constructor(
             add(HEIGHT)
             add(BUCKET_ID)
             add(BUCKET_DISPLAY_NAME)
-            // Android 10+ 用 relative_path 还原路径，旧系统还能读 _data
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(RELATIVE_PATH) else add(DATA_PATH)
+            // Android 10+ 用 relative_path 还原路径；_data 仅在拿到「所有文件访问权限」时可读，
+            // 用来识别指向其它多用户目录的幽灵记录
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                add(RELATIVE_PATH)
+                add(DATA_PATH)
+            } else {
+                add(DATA_PATH)
+            }
         }.toTypedArray()
 
         const val SORT_ORDER = "$DATE_TAKEN DESC, $ID DESC"
