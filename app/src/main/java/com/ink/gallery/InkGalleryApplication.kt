@@ -1,8 +1,11 @@
 package com.ink.gallery
 
 import android.app.Application
+import android.os.Build
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
@@ -35,6 +38,14 @@ class InkGalleryApplication : Application(), ImageLoaderFactory {
         .components {
             // 视频缩略图：解码首帧，走的是同一条 ImageLoader/磁盘缓存
             add(VideoFrameDecoder.Factory())
+            // GIF / 动态 WebP：28+ 用系统 ImageDecoder，解码与帧调度在 native 侧，
+            // 网格里整屏一起播也不会有逐帧解码的开销；老系统只能用纯 Java 的 GifDecoder，
+            // 那种情况网格/封面会强制静态首帧（见 PhotoThumbnail / BucketItem）。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                add(ImageDecoderDecoder.Factory())
+            } else {
+                add(GifDecoder.Factory())
+            }
         }
         .memoryCache {
             MemoryCache.Builder(this)

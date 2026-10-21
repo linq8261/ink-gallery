@@ -1,5 +1,6 @@
 package com.ink.gallery.feature.buckets
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.decode.BitmapFactoryDecoder
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.Bucket
 import com.ink.gallery.ui.component.EmptyView
@@ -128,6 +130,12 @@ private fun BucketItem(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(bucket.coverUri)
                 .crossfade(true)
+                .apply {
+                    // 封面可能是 GIF：Android 9 以下逐帧解码开销大，只出首帧
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+                        decoderFactory(BitmapFactoryDecoder.Factory())
+                    }
+                }
                 .build(),
             contentDescription = bucket.name,
             contentScale = ContentScale.Crop,

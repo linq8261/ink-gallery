@@ -1,5 +1,6 @@
 package com.ink.gallery.ui.component
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.decode.BitmapFactoryDecoder
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.util.formatDuration
@@ -35,6 +37,8 @@ fun PhotoThumbnail(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isGif = photo.mimeType.equals("image/gif", ignoreCase = true)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -48,6 +52,13 @@ fun PhotoThumbnail(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(photo.uri)
                 .crossfade(true)
+                .apply {
+                    // Android 9 以下动图是 App 内逐帧解码，网格里同时播十几个会明显掉帧，
+                    // 这里强制走静态解码器只出首帧；详情页仍然播放。
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+                        decoderFactory(BitmapFactoryDecoder.Factory())
+                    }
+                }
                 .build(),
             contentDescription = photo.displayName,
             contentScale = ContentScale.Crop,
@@ -74,6 +85,20 @@ fun PhotoThumbnail(
                     style = MaterialTheme.typography.labelSmall
                 )
             }
+        } else if (isGif) {
+            Text(
+                text = "GIF",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .background(
+                        color = Color.Black.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            )
         }
     }
 }
