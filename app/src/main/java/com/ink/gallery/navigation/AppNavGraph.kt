@@ -1,5 +1,7 @@
 package com.ink.gallery.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -19,7 +21,13 @@ fun AppNavGraph(
 ) {
     NavHost(
         navController = navController,
-        startDestination = NavRoutes.HOME
+        startDestination = NavRoutes.HOME,
+        // navigation-compose 2.7 给每个目的地默认加了 700ms 淡入淡出，
+        // 相册里频繁进详情/返回会显得拖沓，这里全部关掉
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None }
     ) {
         composable(NavRoutes.HOME) {
             HomeScreen(

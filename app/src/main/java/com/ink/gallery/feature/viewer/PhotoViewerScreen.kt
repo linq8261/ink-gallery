@@ -59,6 +59,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.util.DateFormatter
+import com.ink.gallery.util.formatDuration
 import java.util.Locale
 
 private val DETAIL_DRAG_THRESHOLD = 56.dp
@@ -157,11 +158,19 @@ fun PhotoViewerScreen(
         ) { page ->
             val photo = photos.getOrNull(page)
             if (photo != null) {
-                ZoomableImage(
-                    photo = photo,
-                    onTap = { barsVisible = !barsVisible },
-                    onZoomChanged = { zoomed = it }
-                )
+                if (photo.isVideo) {
+                    VideoPreviewPage(
+                        photo = photo,
+                        onTap = { barsVisible = !barsVisible },
+                        onPlay = { playVideo(context, photo) }
+                    )
+                } else {
+                    ZoomableImage(
+                        photo = photo,
+                        onTap = { barsVisible = !barsVisible },
+                        onZoomChanged = { zoomed = it }
+                    )
+                }
             }
         }
 
@@ -322,6 +331,9 @@ private fun PhotoDetailsSheet(
                     "未知"
                 }
             )
+            if (photo.isVideo) {
+                DetailRow(label = "时长", value = formatDuration(photo.durationMs))
+            }
             DetailRow(label = "文件大小", value = formatFileSize(photo.size))
             DetailRow(label = "类型", value = photo.mimeType.ifEmpty { "未知" })
             DetailRow(label = "路径", value = photo.path.ifEmpty { "未知" })
@@ -353,7 +365,7 @@ private fun DetailRow(label: String, value: String) {
 
 private fun launchEdit(context: Context, photo: PhotoItem) {
     val intent = Intent(Intent.ACTION_EDIT).apply {
-        setDataAndType(photo.uri, photo.mimeType.ifEmpty { "image/*" })
+        setDataAndType(photo.uri, photo.mimeType.ifEmpty { photo.wildcardMime() })
         // 只能转授读权限：本 App 对相册里的照片没有写权限，
         // 附带 FLAG_GRANT_WRITE_URI_PERMISSION 会让系统校验失败并抛 SecurityException
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -361,7 +373,7 @@ private fun launchEdit(context: Context, photo: PhotoItem) {
     try {
         context.startActivity(intent)
     } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "没有可用的图片编辑应用", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "没有可用的编辑应用", Toast.LENGTH_SHORT).show()
     } catch (e: SecurityException) {
         Toast.makeText(context, "没有权限打开编辑应用", Toast.LENGTH_SHORT).show()
     }
@@ -369,12 +381,15 @@ private fun launchEdit(context: Context, photo: PhotoItem) {
 
 private fun launchShare(context: Context, photo: PhotoItem) {
     val intent = Intent(Intent.ACTION_SEND).apply {
-        type = photo.mimeType.ifEmpty { "image/*" }
+        type = photo.mimeType.ifEmpty { photo.wildcardMime() }
         putExtra(Intent.EXTRA_STREAM, photo.uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(intent, "分享照片"))
+    val title = if (photo.isVideo) "分享视频" else "分享照片"
+    context.startActivity(Intent.createChooser(intent, title))
 }
+
+private fun PhotoItem.wildcardMime(): String = if (isVideo) "video/*" else "image/*"
 
 private fun formatFileSize(bytes: Long): String {
     if (bytes <= 0L) return "未知"

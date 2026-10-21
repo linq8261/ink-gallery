@@ -3,19 +3,17 @@ package com.ink.gallery.feature.bucketdetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.Pager
-import androidx.paging.PagingConfig
-import androidx.paging.PagingData
-import androidx.paging.cachedIn
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.data.repository.BucketRepository
 import com.ink.gallery.data.repository.PhotoRepository
 import com.ink.gallery.navigation.NavRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -31,16 +29,14 @@ class BucketDetailViewModel @Inject constructor(
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
 
-    val photos: Flow<PagingData<PhotoItem>> = Pager(
-        config = PagingConfig(
-            pageSize = PAGE_SIZE,
-            initialLoadSize = PAGE_SIZE * 2,
-            prefetchDistance = PAGE_SIZE,
-            enablePlaceholders = false
-        ),
-        // bucket_id 是路径哈希，可能为负数，只能用哨兵值判断
-        pagingSourceFactory = { repository.pagingSource(bucketId.takeIf { it != NO_BUCKET_ID }) }
-    ).flow.cachedIn(viewModelScope)
+    /**
+     * 该相册的全部照片/视频（从新到旧），null 表示首次读取还没完成。
+     * bucket_id 是路径哈希，可能为负数，只能用哨兵值判断「未指定相册」。
+     */
+    val photos: StateFlow<List<PhotoItem>?> = repository
+        .observePhotos(bucketId.takeIf { it != NO_BUCKET_ID })
+        .map<List<PhotoItem>, List<PhotoItem>?> { it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     init {
         viewModelScope.launch {
@@ -48,11 +44,10 @@ class BucketDetailViewModel @Inject constructor(
         }
     }
 
-    /** 下拉刷新：丢弃元数据缓存，由界面再触发 Paging 重新加载 */
-    fun refresh() = repository.refresh()
+    /** 下拉刷新：丢弃缓存并重查，返回时数据已就绪 */
+    suspend fun refresh() = repository.refresh()
 
     private companion object {
-        const val PAGE_SIZE = 60
         const val NO_BUCKET_ID = -1L
     }
 }

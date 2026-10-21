@@ -17,8 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.paging.compose.collectAsLazyPagingItems
-import com.ink.gallery.ui.component.PagedPhotoGrid
+import com.ink.gallery.ui.component.PhotoGrid
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,7 +27,7 @@ fun BucketDetailScreen(
     viewModel: BucketDetailViewModel = hiltViewModel()
 ) {
     val title by viewModel.title.collectAsStateWithLifecycle()
-    val photos = viewModel.photos.collectAsLazyPagingItems()
+    val photos by viewModel.photos.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -56,13 +55,10 @@ fun BucketDetailScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            PagedPhotoGrid(
+            PhotoGrid(
                 photos = photos,
                 onPhotoClick = { photo -> onPhotoClick(photo.id) },
-                onRefresh = {
-                    viewModel.refresh()
-                    photos.refresh()
-                }
+                onRefresh = { viewModel.refresh() }
             )
         }
     }

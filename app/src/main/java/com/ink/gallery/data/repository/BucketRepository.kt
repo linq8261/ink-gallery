@@ -29,18 +29,42 @@ class BucketRepository @Inject constructor(
      *
      * MediaStore 不支持 GROUP BY，这里一次性遍历并聚合，
      * 查询按照片修改时间倒序，取每个 bucket 的第一张（最新的）作为封面。
+     * 图片与视频都参与聚合（同一个目录在两张表里的 bucket_id 相同），
+     * 封面优先取图片，纯视频目录则用视频首帧当封面。
      */
     suspend fun getBuckets(): List<Bucket> = withContext(Dispatchers.IO) {
         val buckets = LinkedHashMap<Long, Bucket>()
         val counts = HashMap<Long, Int>()
 
-        contentResolver.query(
-            COLLECTION,
-            PROJECTION,
-            null,
-            null,
-            "$DATE_MODIFIED DESC, $ID DESC"
-        )?.use { cursor ->
+        collectBuckets(IMAGE_COLLECTION, PROJECTION, buckets, counts)
+        collectBuckets(VIDEO_COLLECTION, PROJECTION, buckets, counts)
+
+        buckets.values
+            .map { bucket -> bucket.copy(count = counts[bucket.id] ?: 0) }
+            .sortedByDescending { albumTime(it.relativePath) }
+    }
+
+    private fun collectBuckets(
+        collection: Uri,
+        projection: Array<String>,
+        buckets: LinkedHashMap<Long, Bucket>,
+        counts: HashMap<Long, Int>
+    ) {
+        // 只授予图片或只授予视频权限时，查另一个集合会抛 SecurityException，直接跳过
+        val cursor = runCatching {
+            contentResolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "$DATE_MODIFIED DESC, $ID DESC"
+            )
+        }.getOrNull()
+        cursor?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(ID)
+            val bucketIdIndex = cursor.getColumnIndexOrThrow(BUCKET_ID)
+            val bucketNameIndex = cursor.getColumnIndexOrThrow(BUCKET_DISPLAY_NAME)
+            val dateModifiedIndex = cursor.getColumnIndexOrThrow(DATE_MODIFIED)
             val relativePathIndex = cursor.getColumnIndex(RELATIVE_PATH)
             val dataIndex = cursor.getColumnIndex(DATA_PATH)
             while (cursor.moveToNext()) {
@@ -52,18 +76,18 @@ class BucketRepository @Inject constructor(
                         continue
                     }
                 }
-                val photoId = cursor.getLong(0)
-                val bucketId = cursor.getLong(1)
-                val bucketName = cursor.getString(2).orEmpty().ifEmpty { DEFAULT_BUCKET_NAME }
+                val mediaId = cursor.getLong(idIndex)
+                val bucketId = cursor.getLong(bucketIdIndex)
+                val bucketName = cursor.getString(bucketNameIndex).orEmpty().ifEmpty { DEFAULT_BUCKET_NAME }
 
                 counts[bucketId] = (counts[bucketId] ?: 0) + 1
                 if (!buckets.containsKey(bucketId)) {
                     buckets[bucketId] = Bucket(
                         id = bucketId,
                         name = bucketName,
-                        coverUri = ContentUris.withAppendedId(COLLECTION, photoId),
+                        coverUri = ContentUris.withAppendedId(collection, mediaId),
                         count = 0,
-                        latestModified = cursor.getLong(3) * 1000L,
+                        latestModified = cursor.getLong(dateModifiedIndex) * 1000L,
                         relativePath = if (relativePathIndex >= 0) {
                             cursor.getString(relativePathIndex).orEmpty()
                         } else {
@@ -73,10 +97,6 @@ class BucketRepository @Inject constructor(
                 }
             }
         }
-
-        buckets.values
-            .map { bucket -> bucket.copy(count = counts[bucket.id] ?: 0) }
-            .sortedByDescending { albumTime(it.relativePath) }
     }
 
     /**
@@ -91,20 +111,26 @@ class BucketRepository @Inject constructor(
         return maxOf(dir.lastModified(), touched)
     }
 
+    /** 相册名优先从图片集合取，纯视频目录再查视频集合 */
     suspend fun getBucketName(bucketId: Long): String? = withContext(Dispatchers.IO) {
-        contentResolver.query(
-            COLLECTION,
-            arrayOf(BUCKET_DISPLAY_NAME),
-            "$BUCKET_ID = ?",
-            arrayOf(bucketId.toString()),
-            null
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
+        listOf(IMAGE_COLLECTION, VIDEO_COLLECTION).firstNotNullOfOrNull { collection ->
+            runCatching {
+                contentResolver.query(
+                    collection,
+                    arrayOf(BUCKET_DISPLAY_NAME),
+                    "$BUCKET_ID = ?",
+                    arrayOf(bucketId.toString()),
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull()
         }
     }
 
     private companion object {
-        val COLLECTION: Uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val IMAGE_COLLECTION: Uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val VIDEO_COLLECTION: Uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
 
         const val ID = MediaStore.Images.Media._ID
         const val BUCKET_ID = MediaStore.Images.Media.BUCKET_ID

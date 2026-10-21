@@ -17,8 +17,8 @@ import android.os.Looper
 import android.os.Process
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
+import com.ink.gallery.data.model.MediaType
 import com.ink.gallery.data.model.PhotoItem
-import com.ink.gallery.data.paging.PhotoPagingSource
 import com.ink.gallery.util.StorageAccess
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -26,15 +26,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,9 +47,10 @@ import javax.inject.Singleton
  * 不能在 ContentResolver.query 的 sortOrder 里拼接 `LIMIT/OFFSET`：新版 MediaProvider
  * 对 sortOrder 做严格 SQL 校验，会直接抛 `IllegalArgumentException: Invalid token LIMIT`。
  *
- * 这里改为「一次读取全量元数据 + 内存分页」：只投影轻量列、不触碰位图，
- * 万张级别的元数据也只有几 MB；[PhotoPagingSource] 在内存列表上切片，
- * 滚动翻页零查询。媒体库变化时由 ContentObserver 兜底失效缓存与分页快照。
+ * 这里改为「一次读取全量元数据 + 内存持有」：只投影轻量列、不触碰位图，
+ * 万张级别的元数据也只有几 MB，界面直接拿整份列表交给 LazyGrid 渲染，
+ * 滚动时没有分页查询、也没有分页源失效导致的重建闪烁。
+ * 媒体库变化时由 ContentObserver 兜底失效缓存，并通过 [mediaChanges] 通知界面重读。
  */
 @Singleton
 class PhotoRepository @Inject constructor(
@@ -64,7 +67,6 @@ class PhotoRepository @Inject constructor(
     @Volatile
     private var cachedGroups: Map<Long, List<PhotoItem>>? = null
 
-    private val pagingSources = WeakHashMap<PhotoPagingSource, Unit>()
     private var invalidateJob: Job? = null
 
     /**
@@ -89,13 +91,23 @@ class PhotoRepository @Inject constructor(
     }
 
     init {
-        contentResolver.registerContentObserver(COLLECTION, true, mediaObserver)
+        contentResolver.registerContentObserver(IMAGE_COLLECTION, true, mediaObserver)
+        contentResolver.registerContentObserver(VIDEO_COLLECTION, true, mediaObserver)
     }
 
-    fun pagingSource(bucketId: Long? = null): PhotoPagingSource =
-        PhotoPagingSource { loadPhotos(bucketId) }.also { source ->
-            synchronized(pagingSources) { pagingSources[source] = Unit }
-        }
+    /**
+     * 照片列表的变化流：订阅时先给一份当前数据（命中缓存就是内存操作），
+     * 之后媒体库变化、自己移动照片时再重读一次。
+     *
+     * 界面只需要 collect 这份列表，不做「整屏重建」——缓存被就地更新后，
+     * 列表差异由 LazyGrid 自己 diff，不会出现加载圈。
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observePhotos(bucketId: Long? = null): Flow<List<PhotoItem>> =
+        mediaChanges
+            .onStart { emit(Unit) }
+            // 连续变化时只保留最新一次读取，避免旧结果后到覆盖新结果
+            .mapLatest { loadPhotos(bucketId) }
 
     suspend fun getPhoto(photoId: Long): PhotoItem? {
         loadPhotos(null).firstOrNull { it.id == photoId }?.let { return it }
@@ -144,7 +156,6 @@ class PhotoRepository @Inject constructor(
                             markAlbumTouched(photo, directory)
                             applyMovedPhotoToCache(photo.id)
                             _mediaChanges.tryEmit(Unit)
-                            invalidatePagingSources()
                             MovePhotoResult.Moved
                         }
 
@@ -286,26 +297,45 @@ class PhotoRepository @Inject constructor(
         selection: String? = null,
         selectionArgs: Array<String> = emptyArray()
     ): List<PhotoItem> {
+        val args = selectionArgs.takeIf { it.isNotEmpty() }
         val photos = ArrayList<PhotoItem>()
-        contentResolver.query(
-            COLLECTION,
-            PROJECTION,
-            selection,
-            selectionArgs.takeIf { it.isNotEmpty() },
-            SORT_ORDER
-        )?.use { cursor ->
-            while (cursor.moveToNext()) {
-                cursor.readPhoto()?.let { photos += it }
+        photos += queryCollection(IMAGE_COLLECTION, IMAGE_PROJECTION, MediaType.IMAGE, selection, args)
+        photos += queryCollection(VIDEO_COLLECTION, VIDEO_PROJECTION, MediaType.VIDEO, selection, args)
+        // 两个集合各自有序，合并后必须整体重排
+        return photos.sortedWith(PHOTO_ORDER)
+    }
+
+    private fun queryCollection(
+        collection: Uri,
+        projection: Array<String>,
+        mediaType: MediaType,
+        selection: String?,
+        selectionArgs: Array<String>?
+    ): List<PhotoItem> {
+        val result = ArrayList<PhotoItem>()
+        // 用户可能只授予了图片或只授予了视频权限（Android 13+ 两个权限分开），
+        // 查未授权的集合会抛 SecurityException，这里降级成「该集合为空」
+        runCatching {
+            contentResolver.query(
+                collection,
+                projection,
+                selection,
+                selectionArgs,
+                SORT_ORDER
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    cursor.readPhoto(collection, mediaType)?.let { result += it }
+                }
             }
         }
-        return photos
+        return result
     }
 
     /**
      * 读取一行；返回 null 表示这条记录指向别的多用户（/storage/emulated/995 之类），
      * 当前用户既读不到文件，也会让同一个目录在相册页里裂成两个同名相册。
      */
-    private fun Cursor.readPhoto(): PhotoItem? {
+    private fun Cursor.readPhoto(collection: Uri, mediaType: MediaType): PhotoItem? {
         val dataIndex = getColumnIndex(DATA_PATH)
         if (dataIndex >= 0) {
             val data = getString(dataIndex).orEmpty()
@@ -315,9 +345,10 @@ class PhotoRepository @Inject constructor(
         }
         val id = getLong(getColumnIndexOrThrow(ID))
         val displayName = getString(getColumnIndexOrThrow(DISPLAY_NAME)).orEmpty()
+        val durationIndex = getColumnIndex(DURATION)
         return PhotoItem(
             id = id,
-            uri = ContentUris.withAppendedId(COLLECTION, id),
+            uri = ContentUris.withAppendedId(collection, id),
             displayName = displayName,
             mimeType = getString(getColumnIndexOrThrow(MIME_TYPE)).orEmpty(),
             dateTaken = getLong(getColumnIndexOrThrow(DATE_TAKEN)),
@@ -327,7 +358,9 @@ class PhotoRepository @Inject constructor(
             height = getInt(getColumnIndexOrThrow(HEIGHT)),
             bucketId = getLong(getColumnIndexOrThrow(BUCKET_ID)),
             bucketName = getString(getColumnIndexOrThrow(BUCKET_DISPLAY_NAME)).orEmpty(),
-            path = readAbsolutePath(displayName)
+            path = readAbsolutePath(displayName),
+            mediaType = mediaType,
+            durationMs = if (durationIndex >= 0) getLong(durationIndex) else 0L
         )
     }
 
@@ -355,12 +388,13 @@ class PhotoRepository @Inject constructor(
     }
 
     /**
-     * 手动刷新（下拉刷新）：丢弃内存缓存并通知相册页等界面。
-     * 分页列表由调用方通过 `LazyPagingItems.refresh()` 重新读取。
+     * 手动刷新（下拉刷新）：丢弃内存缓存并立刻重查一次，
+     * 函数返回时数据已就绪，界面据此收起下拉指示器即可，不会出现二次加载。
      */
-    fun refresh() {
+    suspend fun refresh() {
         cachedPhotos = null
         cachedGroups = null
+        withContext(Dispatchers.IO) { loadPhotos(null) }
         _mediaChanges.tryEmit(Unit)
     }
 
@@ -377,15 +411,6 @@ class PhotoRepository @Inject constructor(
         cachedPhotos = null
         cachedGroups = null
         _mediaChanges.tryEmit(Unit)
-        invalidatePagingSources()
-    }
-
-    /** 只让分页源重新加载；缓存仍然有效时重载走内存切片，毫秒级完成 */
-    private fun invalidatePagingSources() {
-        val sources = synchronized(pagingSources) {
-            pagingSources.keys.toList().also { pagingSources.clear() }
-        }
-        sources.forEach { it.invalidate() }
     }
 
     /**
@@ -398,7 +423,12 @@ class PhotoRepository @Inject constructor(
             selection = "$ID = ?",
             selectionArgs = arrayOf(photoId.toString())
         ).firstOrNull() ?: return
-        val next = (current.filterNot { it.id == photoId } + updated).sortedWith(PHOTO_ORDER)
+        // MediaProvider 的 update 一般会刷新 date_modified；文件搬运 + 重扫的路径可能滞后，
+        // 这里直接抬到当前时间，保证「刚移动的照片排最前」立刻生效
+        val moved = updated.copy(
+            dateModified = maxOf(updated.dateModified, System.currentTimeMillis())
+        )
+        val next = (current.filterNot { it.id == photoId } + moved).sortedWith(PHOTO_ORDER)
         cachedPhotos = next
         cachedGroups = next.groupBy { it.bucketId }
     }
@@ -406,8 +436,11 @@ class PhotoRepository @Inject constructor(
     private companion object {
         const val INVALIDATE_DEBOUNCE_MS = 300L
 
-        val COLLECTION: Uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val IMAGE_COLLECTION: Uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val VIDEO_COLLECTION: Uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
 
+        // 列名全部取自 Images 常量：图片与视频的列名（_id / bucket_id / ...）完全一致，
+        // 而 MediaStore.MediaColumns 的部分常量是 API 29 才加的，minSdk 24 下引用会触发 lint。
         const val ID = MediaStore.Images.Media._ID
         const val DISPLAY_NAME = MediaStore.Images.Media.DISPLAY_NAME
         const val MIME_TYPE = MediaStore.Images.Media.MIME_TYPE
@@ -418,6 +451,7 @@ class PhotoRepository @Inject constructor(
         const val HEIGHT = MediaStore.Images.Media.HEIGHT
         const val BUCKET_ID = MediaStore.Images.Media.BUCKET_ID
         const val BUCKET_DISPLAY_NAME = MediaStore.Images.Media.BUCKET_DISPLAY_NAME
+        const val DURATION = MediaStore.Video.VideoColumns.DURATION
         const         val RELATIVE_PATH = MediaStore.MediaColumns.RELATIVE_PATH
         const val DATA_PATH = MediaStore.MediaColumns.DATA
 
@@ -427,7 +461,8 @@ class PhotoRepository @Inject constructor(
         /** 其它多用户的共享存储前缀，如 /storage/emulated/995/ */
         const val OTHER_USER_PREFIX = "/storage/emulated/"
 
-        val PROJECTION: Array<String> = buildList {
+        /** 图片与视频共有的列 */
+        private fun MutableList<String>.addCommonColumns() {
             add(ID)
             add(DISPLAY_NAME)
             add(MIME_TYPE)
@@ -446,13 +481,23 @@ class PhotoRepository @Inject constructor(
             } else {
                 add(DATA_PATH)
             }
+        }
+
+        val IMAGE_PROJECTION: Array<String> = buildList { addCommonColumns() }.toTypedArray()
+
+        // DURATION 只在视频集合里查，图片集合投影它会被 MediaProvider 拒绝
+        val VIDEO_PROJECTION: Array<String> = buildList {
+            addCommonColumns()
+            add(DURATION)
         }.toTypedArray()
 
-        const val SORT_ORDER = "$DATE_TAKEN DESC, $ID DESC"
+        // 按修改时间排序：刚拍的照片 mtime≈拍摄时间，刚移动/重命名的照片 mtime 会刷新，
+        // 于是「刚动过的排最前」。date_taken 只在拍摄时写一次，移动后不会变。
+        const val SORT_ORDER = "$DATE_MODIFIED DESC, $ID DESC"
 
         /** 与 [SORT_ORDER] 一致的内存排序（从新到旧） */
         val PHOTO_ORDER: Comparator<PhotoItem> =
-            compareByDescending<PhotoItem> { it.dateTaken }.thenByDescending { it.id }
+            compareByDescending<PhotoItem> { it.dateModified }.thenByDescending { it.id }
     }
 }
 

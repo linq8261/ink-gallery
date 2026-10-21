@@ -59,7 +59,7 @@ class PhotoViewerViewModel @Inject constructor(
 
     /**
      * 一次性取整个相册（或全部照片）的列表，顶部计数就是「相册内序号 / 相册总数」，
-     * 与网格顺序（date_taken DESC, _id DESC）一致。列表来自仓库内存缓存，
+     * 与网格顺序（date_modified DESC, _id DESC）一致。列表来自仓库内存缓存，
      * 页面本身由 Pager 懒加载，不预加载位图。
      */
     private fun loadInitial() {

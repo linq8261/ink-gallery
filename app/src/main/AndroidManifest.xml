@@ -3,7 +3,9 @@
 
     <!-- Android 13+ 读取图片 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <!-- Android 14+ 用户选择的照片 -->
+    <!-- Android 13+ 读取视频 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Android 14+ 用户选择的照片/视频 -->
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <!-- Android 12 及以下 -->
     <uses-permission

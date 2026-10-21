@@ -74,12 +74,12 @@ private fun PermissionRequestScreen(onRequest: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "需要照片访问权限",
+            text = "需要照片和视频访问权限",
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "弄墨相册只读取设备本地照片，不会上传任何内容。",
+            text = "弄墨相册只读取设备本地照片和视频，不会上传任何内容。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
