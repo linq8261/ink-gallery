@@ -7,10 +7,29 @@ import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import com.ink.gallery.data.repository.TrashRepository
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @HiltAndroidApp
 class InkGalleryApplication : Application(), ImageLoaderFactory {
+
+    @Inject
+    lateinit var trashRepository: TrashRepository
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    override fun onCreate() {
+        super.onCreate()
+        // 回收站保留 30 天：每次启动清一次过期条目（含文件本体）
+        appScope.launch {
+            runCatching { trashRepository.purgeExpired() }
+        }
+    }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .components {

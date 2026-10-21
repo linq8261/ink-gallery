@@ -43,7 +43,12 @@ fun PhotoViewerToolbar(
     onShare: () -> Unit,
     onMove: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * 删除依赖「所有文件访问权限」。没有权限时图标置灰，
+     * 点击仍会触发 [onDelete]，由界面弹引导框而不是静默无反应。
+     */
+    deleteEnabled: Boolean = true
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
 
@@ -59,7 +64,12 @@ fun PhotoViewerToolbar(
         ToolbarAction(icon = Icons.Outlined.Edit, label = "编辑", onClick = onEdit)
         ToolbarAction(icon = Icons.Outlined.Share, label = "分享", onClick = onShare)
         ToolbarAction(icon = Icons.Outlined.FolderOpen, label = "移动", onClick = onMove)
-        ToolbarAction(icon = Icons.Outlined.Delete, label = "删除", onClick = onDelete)
+        ToolbarAction(
+            icon = Icons.Outlined.Delete,
+            label = "删除",
+            onClick = onDelete,
+            grayed = !deleteEnabled
+        )
         Box {
             ToolbarAction(
                 icon = Icons.Outlined.MoreHoriz,
@@ -83,8 +93,10 @@ fun PhotoViewerToolbar(
 private fun ToolbarAction(
     icon: ImageVector,
     label: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    grayed: Boolean = false
 ) {
+    val alpha = if (grayed) 0.4f else 1f
     Column(
         modifier = Modifier
             .widthIn(min = 56.dp)
@@ -96,13 +108,13 @@ private fun ToolbarAction(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = Color.White,
+            tint = Color.White.copy(alpha = alpha),
             modifier = Modifier.size(22.dp)
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.9f),
+            color = Color.White.copy(alpha = 0.9f * alpha),
             style = MaterialTheme.typography.labelSmall
         )
     }

@@ -13,6 +13,7 @@ import com.ink.gallery.feature.bucketdetail.BucketDetailScreen
 import com.ink.gallery.feature.home.HomeScreen
 import com.ink.gallery.feature.settings.AboutScreen
 import com.ink.gallery.feature.settings.SettingsScreen
+import com.ink.gallery.feature.trash.TrashScreen
 import com.ink.gallery.feature.viewer.PhotoViewerScreen
 
 @Composable
@@ -44,8 +45,13 @@ fun AppNavGraph(
         composable(NavRoutes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenAbout = { navController.navigate(NavRoutes.ABOUT) }
+                onOpenAbout = { navController.navigate(NavRoutes.ABOUT) },
+                onOpenTrash = { navController.navigate(NavRoutes.TRASH) }
             )
+        }
+
+        composable(NavRoutes.TRASH) {
+            TrashScreen(onBack = { navController.popBackStack() })
         }
 
         composable(NavRoutes.ABOUT) {

@@ -413,6 +413,15 @@ class PhotoRepository @Inject constructor(
         _mediaChanges.tryEmit(Unit)
     }
 
+    /** 删除（移入回收站）后把这一条从内存列表里摘掉，界面立即少一格 */
+    fun removeFromCache(photoId: Long) {
+        val current = cachedPhotos ?: return
+        val next = current.filterNot { it.id == photoId }
+        cachedPhotos = next
+        cachedGroups = next.groupBy { it.bucketId }
+        _mediaChanges.tryEmit(Unit)
+    }
+
     /**
      * 自己移动成功后只把这一行在缓存里就地更新，不整表重查，
      * 相册详情页重新加载时就是内存切片，不会再出现整屏转圈。

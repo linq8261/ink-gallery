@@ -20,7 +20,13 @@ object PermissionUtil {
             Manifest.permission.READ_MEDIA_VIDEO
         )
 
-        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        // Android 10 及以下删除（移入回收站）还要写权限；11+ 由「所有文件访问权限」负责
+        else -> buildList {
+            add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+                add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }.toTypedArray()
     }
 
     fun hasMediaPermission(context: Context): Boolean = mediaPermissions().any { permission ->

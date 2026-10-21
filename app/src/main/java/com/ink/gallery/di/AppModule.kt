@@ -2,6 +2,9 @@ package com.ink.gallery.di
 
 import android.content.ContentResolver
 import android.content.Context
+import androidx.room.Room
+import com.ink.gallery.data.local.AppDatabase
+import com.ink.gallery.data.local.TrashDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,4 +20,12 @@ object AppModule {
     @Singleton
     fun provideContentResolver(@ApplicationContext context: Context): ContentResolver =
         context.contentResolver
+
+    @Provides
+    @Singleton
+    fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
+        Room.databaseBuilder(context, AppDatabase::class.java, "ink_gallery.db").build()
+
+    @Provides
+    fun provideTrashDao(database: AppDatabase): TrashDao = database.trashDao()
 }

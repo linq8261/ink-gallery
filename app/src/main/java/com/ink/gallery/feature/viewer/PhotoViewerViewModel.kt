@@ -10,6 +10,8 @@ import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.data.repository.BucketRepository
 import com.ink.gallery.data.repository.MovePhotoResult
 import com.ink.gallery.data.repository.PhotoRepository
+import com.ink.gallery.data.repository.TrashRepository
+import com.ink.gallery.data.repository.TrashResult
 import com.ink.gallery.navigation.NavRoutes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +33,8 @@ data class PhotoViewerUiState(
 class PhotoViewerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: PhotoRepository,
-    private val bucketRepository: BucketRepository
+    private val bucketRepository: BucketRepository,
+    private val trashRepository: TrashRepository
 ) : ViewModel() {
 
     private val photoId: Long = savedStateHandle.get<Long>(NavRoutes.ARG_PHOTO_ID) ?: -1L
@@ -50,6 +53,10 @@ class PhotoViewerViewModel @Inject constructor(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    /** 没有「所有文件访问权限」时置位，由界面弹引导框 */
+    private val _needFullAccess = MutableStateFlow(false)
+    val needFullAccess: StateFlow<Boolean> = _needFullAccess.asStateFlow()
 
     private var pendingMove: Pair<PhotoItem, Bucket>? = null
 
@@ -117,6 +124,36 @@ class PhotoViewerViewModel @Inject constructor(
 
     fun consumeMessage() {
         _message.value = null
+    }
+
+    fun consumeNeedFullAccess() {
+        _needFullAccess.value = false
+    }
+
+    /**
+     * 删除 = 移入回收站（30 天后自动彻底删除）。
+     * 文件是 rename 走的，几 G 的视频也是毫秒级，不需要进度界面。
+     */
+    fun deletePhoto(photo: PhotoItem) {
+        viewModelScope.launch {
+            when (val result = trashRepository.moveToTrash(photo)) {
+                TrashResult.Success -> {
+                    _uiState.update { state ->
+                        val remaining = state.photos.filterNot { it.id == photo.id }
+                        state.copy(
+                            photos = remaining,
+                            startIndex = state.startIndex
+                                .coerceIn(0, (remaining.size - 1).coerceAtLeast(0))
+                        )
+                    }
+                    _message.value = "已移入回收站，30 天后自动删除"
+                }
+
+                TrashResult.NeedFullAccess -> _needFullAccess.value = true
+
+                is TrashResult.Failed -> _message.value = result.message
+            }
+        }
     }
 
     private fun attemptMove() {

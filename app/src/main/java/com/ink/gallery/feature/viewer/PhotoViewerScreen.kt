@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,7 +60,9 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.data.model.PhotoItem
+import com.ink.gallery.ui.component.rememberHasFullAccess
 import com.ink.gallery.util.DateFormatter
+import com.ink.gallery.util.StorageAccess
 import com.ink.gallery.util.formatDuration
 import java.util.Locale
 
@@ -72,13 +76,17 @@ fun PhotoViewerScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val movePermission by viewModel.movePermission.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val needFullAccess by viewModel.needFullAccess.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // 删除依赖「所有文件访问权限」，没有时删除按钮置灰并引导
+    val hasFullAccess = rememberHasFullAccess()
 
     val photos = uiState.photos
     var barsVisible by remember { mutableStateOf(true) }
     var zoomed by remember { mutableStateOf(false) }
     var detailsVisible by remember { mutableStateOf(false) }
     var moveSheetVisible by remember { mutableStateOf(false) }
+    var fullAccessGuideVisible by remember { mutableStateOf(false) }
     val detailsVisibleState = rememberUpdatedState(detailsVisible)
 
     BackHandler(enabled = detailsVisible) { detailsVisible = false }
@@ -104,6 +112,13 @@ fun PhotoViewerScreen(
         message?.let {
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             viewModel.consumeMessage()
+        }
+    }
+
+    LaunchedEffect(needFullAccess) {
+        if (needFullAccess) {
+            fullAccessGuideVisible = true
+            viewModel.consumeNeedFullAccess()
         }
     }
 
@@ -210,9 +225,14 @@ fun PhotoViewerScreen(
                     moveSheetVisible = true
                 },
                 onDelete = {
-                    // 删除功能暂未实现，仅保留入口
-                    Toast.makeText(context, "删除功能暂未实现", Toast.LENGTH_SHORT).show()
-                }
+                    // 有回收站兜底，不再二次确认
+                    if (hasFullAccess) {
+                        currentPhoto?.let { viewModel.deletePhoto(it) }
+                    } else {
+                        fullAccessGuideVisible = true
+                    }
+                },
+                deleteEnabled = hasFullAccess
             )
         }
 
@@ -255,6 +275,32 @@ fun PhotoViewerScreen(
                 onSelect = { bucket ->
                     moveSheetVisible = false
                     currentPhoto?.let { viewModel.movePhoto(it, bucket) }
+                }
+            )
+        }
+
+        if (fullAccessGuideVisible) {
+            AlertDialog(
+                onDismissRequest = { fullAccessGuideVisible = false },
+                title = { Text("需要「所有文件访问权限」") },
+                text = {
+                    Text(
+                        "删除会把照片/视频移入回收站，需要该权限才能搬动文件。" +
+                            "请先到系统设置里为本应用开启。"
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            fullAccessGuideVisible = false
+                            StorageAccess.openSettings(context)
+                        }
+                    ) {
+                        Text("去开启")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { fullAccessGuideVisible = false }) { Text("取消") }
                 }
             )
         }
