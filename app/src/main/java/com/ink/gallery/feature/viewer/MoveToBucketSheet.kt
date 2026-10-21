@@ -49,6 +49,10 @@ fun MoveToBucketSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
     val hasFullAccess = remember { StorageAccess.hasFullAccess() }
+    // 当前所在相册不作为移动目标，直接不列出来
+    val targets = remember(buckets, currentBucketId) {
+        buckets.filter { it.id != currentBucketId }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -81,7 +85,7 @@ fun MoveToBucketSheet(
                     CircularProgressIndicator()
                 }
 
-                buckets.isEmpty() -> Box(
+                targets.isEmpty() -> Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(120.dp),
@@ -99,10 +103,9 @@ fun MoveToBucketSheet(
                         .fillMaxWidth()
                         .heightIn(max = 420.dp)
                 ) {
-                    items(buckets, key = { it.id }) { bucket ->
+                    items(targets, key = { it.id }) { bucket ->
                         BucketTargetRow(
                             bucket = bucket,
-                            isCurrent = bucket.id == currentBucketId,
                             onClick = { onSelect(bucket) }
                         )
                     }
@@ -116,17 +119,16 @@ fun MoveToBucketSheet(
 @Composable
 private fun BucketTargetRow(
     bucket: Bucket,
-    isCurrent: Boolean,
     onClick: () -> Unit
 ) {
     // 系统只允许把图片移进 DCIM / Pictures 下的目录，其余目标点了也必然失败，先置灰
-    val selectable = !isCurrent && bucket.canReceiveMovedPhoto
+    val selectable = bucket.canReceiveMovedPhoto
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = selectable, onClick = onClick)
-            .alpha(if (selectable || isCurrent) 1f else 0.45f)
+            .alpha(if (selectable) 1f else 0.45f)
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -156,14 +158,8 @@ private fun BucketTargetRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        when {
-            isCurrent -> Text(
-                text = "当前相册",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            !bucket.canReceiveMovedPhoto -> Text(
+        if (!bucket.canReceiveMovedPhoto) {
+            Text(
                 text = "系统不允许",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
