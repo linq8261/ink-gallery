@@ -86,14 +86,27 @@ jobs:
       - name: 还原签名配置
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-          printf 'signing.storeFile=keystore.jks\nsigning.storePassword=%s\nsigning.keyAlias=%s\nsigning.keyPassword=%s\n' \
+          if [ ! -s keystore.jks ]; then
+            echo "::error::keystore.jks 为空：请检查 KEYSTORE_BASE64 这个 Secret 是否已配置"
+            exit 1
+          fi
+          ls -l keystore.jks
+          # app/build.gradle.kts 里 storeFile = file(keystorePath)，相对路径是按 :app 模块目录解析的，
+          # 所以必须写 ../keystore.jks 才能指到仓库根目录下刚还原出来的这个文件
+          printf 'signing.storeFile=../keystore.jks\nsigning.storePassword=%s\nsigning.keyAlias=%s\nsigning.keyPassword=%s\n' \
             '${{ secrets.KEYSTORE_PASSWORD }}' '${{ secrets.KEY_ALIAS }}' '${{ secrets.KEY_PASSWORD }}' \
             > local.properties
+          sed 's/Password=.*/Password=***/' local.properties
 
       - name: 构建 release APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          if ! ./gradlew assembleRelease --no-daemon --stacktrace; then
+            echo "::error::Gradle 构建失败，release 输出目录："
+            ls -l app/build/outputs/apk/release/ 2>/dev/null || echo "目录不存在"
+            exit 1
+          fi
+          ls -l app/build/outputs/apk/release/
           mv app/build/outputs/apk/release/app-release.apk "$APK_NAME"
 
       - name: 试跑时上传产物
