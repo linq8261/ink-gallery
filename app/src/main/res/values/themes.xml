@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 冷启动时系统盖在屏幕上的启动窗口（SplashScreen）。
+         白底 + 居中 icon 不是我们画的，是系统按这里的配置生成的。 -->
+    <style name="Theme.InkGallery.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ink_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.InkGallery</item>
+    </style>
+
+    <!-- 首帧上屏后真正生效的主题 -->
     <style name="Theme.InkGallery" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowBackground">@color/ink_background</item>
     </style>
 </resources>

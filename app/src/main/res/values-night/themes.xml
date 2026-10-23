@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.InkGallery.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ink_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.InkGallery</item>
+    </style>
+
+    <style name="Theme.InkGallery" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ink_background</item>
+    </style>
+</resources>

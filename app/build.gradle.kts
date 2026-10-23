@@ -47,7 +47,10 @@ android {
             }
         }
         release {
-            isMinifyEnabled = false
+            // R8：冷启动的主要成本之一是类加载，dex 缩小后这段能明显缩短。
+            // debug 刻意不开：增量编译会变慢，而且启动耗时应该拿 release 包量。
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -74,6 +77,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
