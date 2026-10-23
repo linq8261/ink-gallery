@@ -11,6 +11,7 @@ on:
       tag:
         description: '已存在的 tag，如 20261023-1.0.0-1'
         required: true
+        default: ''
       dry_run:
         description: '只构建、不发布'
         type: boolean
@@ -22,12 +23,20 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    env:
-      TAG_NAME: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # 手动触发用输入的 tag，push tag 触发用 ref 名；
+      # 这里用 shell 决定而不是在 env 里写表达式，避免表达式上下文引发的校验问题
+      - name: 解析 tag
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "TAG_NAME=$TAG" >> "$GITHUB_ENV"
 
       - name: 校验 tag 与版本号
         run: |
@@ -73,7 +82,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ env.TAG_NAME }}
+          name: apk-${{ github.run_number }}
           path: ${{ env.APK_NAME }}
           retention-days: 3
 
