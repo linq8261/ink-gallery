@@ -2,6 +2,7 @@ package com.ink.gallery.feature.buckets
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -24,8 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
@@ -78,13 +77,11 @@ fun BucketsScreen(
                 verticalArrangement = Arrangement.spacedBy(0.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                itemsIndexed(uiState.buckets, key = { _, bucket -> bucket.id }) { index, bucket ->
+                items(uiState.buckets, key = { bucket -> bucket.id }) { bucket ->
                     BucketItem(
                         bucket = bucket,
                         onClick = { onBucketClick(bucket.id) },
-                        drawRightDivider = (index + 1) % BUCKET_COLUMNS != 0,
-                        drawBottomDivider = index + BUCKET_COLUMNS < uiState.buckets.size,
-                        dividerColor = MaterialTheme.colorScheme.outlineVariant
+                        borderColor = MaterialTheme.colorScheme.outlineVariant
                     )
                 }
             }
@@ -96,35 +93,13 @@ fun BucketsScreen(
 private fun BucketItem(
     bucket: Bucket,
     onClick: () -> Unit,
-    drawRightDivider: Boolean,
-    drawBottomDivider: Boolean,
-    dividerColor: Color
+    borderColor: Color
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .drawBehind {
-                val stroke = 1.dp.toPx()
-                val half = stroke / 2f
-                if (drawRightDivider) {
-                    drawLine(
-                        color = dividerColor,
-                        start = Offset(size.width - half, 0f),
-                        end = Offset(size.width - half, size.height),
-                        strokeWidth = stroke
-                    )
-                }
-                if (drawBottomDivider) {
-                    drawLine(
-                        color = dividerColor,
-                        start = Offset(0f, size.height - half),
-                        end = Offset(size.width, size.height - half),
-                        strokeWidth = stroke
-                    )
-                }
-            }
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .border(width = 1.dp, color = borderColor)
     ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
@@ -150,12 +125,13 @@ private fun BucketItem(
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp)
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 6.dp)
         )
         Text(
             text = DateFormatter.formatCount(bucket.count),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
         )
     }
 }

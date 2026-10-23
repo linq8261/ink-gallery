@@ -33,7 +33,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.data.local.TrashEntity
 import com.ink.gallery.data.model.MediaType
 import com.ink.gallery.data.model.PhotoItem
+import com.ink.gallery.ui.component.AppTopBar
 import com.ink.gallery.ui.component.EmptyView
 import com.ink.gallery.ui.component.PhotoGridSpec
 import com.ink.gallery.ui.component.PhotoThumbnail
@@ -96,6 +96,7 @@ fun TrashScreen(
     BackHandler(enabled = selectionActive) { selection.exit() }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             if (selectionActive) {
                 SelectionTopBar(
@@ -111,8 +112,8 @@ fun TrashScreen(
                     }
                 )
             } else {
-                TopAppBar(
-                    title = { Text("回收站") },
+                AppTopBar(
+                    title = "回收站",
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(

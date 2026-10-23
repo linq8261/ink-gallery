@@ -21,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -31,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.feature.trash.TrashViewModel
+import com.ink.gallery.ui.component.AppTopBar
 import com.ink.gallery.ui.component.rememberHasFullAccess
 import com.ink.gallery.util.StorageAccess
 import com.ink.gallery.util.formatFileSize
@@ -50,9 +50,10 @@ fun SettingsScreen(
     val trashSize by trashViewModel.totalSize.collectAsStateWithLifecycle()
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("设置") },
+            AppTopBar(
+                title = "设置",
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(

@@ -32,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +50,7 @@ import com.ink.gallery.feature.common.MediaSelectionViewModel
 import com.ink.gallery.feature.photos.PhotosScreen
 import com.ink.gallery.feature.photos.PhotosViewModel
 import com.ink.gallery.feature.viewer.MoveToBucketSheet
+import com.ink.gallery.ui.component.AppTopBar
 import com.ink.gallery.ui.component.FullAccessBanner
 import com.ink.gallery.ui.component.SelectionAction
 import com.ink.gallery.ui.component.SelectionBottomBar
@@ -124,6 +124,7 @@ fun HomeScreen(
     val showSelectionBars = currentPage == PAGE_PHOTOS && selectionActive
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             if (showSelectionBars) {
                 SelectionTopBar(
@@ -139,10 +140,8 @@ fun HomeScreen(
                     }
                 )
             } else {
-                TopAppBar(
-                    title = {
-                        Text(text = if (currentPage == PAGE_BUCKETS) "相册页" else "相片页")
-                    },
+                AppTopBar(
+                    title = if (currentPage == PAGE_BUCKETS) "相册页" else "相片页",
                     actions = {
                         IconButton(onClick = onOpenSettings) {
                             Icon(

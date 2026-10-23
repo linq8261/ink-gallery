@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -22,6 +23,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +31,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.ink.gallery.ui.theme.InkTitleBar
+import com.ink.gallery.ui.theme.InkTitleBarContent
 
 /** 选择模式顶栏：退出 + 已选数量 + 全选/取消全选 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,10 +54,19 @@ fun SelectionTopBar(
             }
         },
         actions = {
-            TextButton(onClick = onToggleSelectAll) {
+            TextButton(
+                onClick = onToggleSelectAll,
+                colors = ButtonDefaults.textButtonColors(contentColor = InkTitleBarContent)
+            ) {
                 Text(if (allSelected) "取消全选" else "全选")
             }
-        }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = InkTitleBar,
+            titleContentColor = InkTitleBarContent,
+            navigationIconContentColor = InkTitleBarContent,
+            actionIconContentColor = InkTitleBarContent
+        )
     )
 }
 
