@@ -24,6 +24,9 @@ import javax.inject.Singleton
  * 回收站目录总是选在原文件所在存储卷上（内部存储用 App 私有目录，外置卡用卡根隐藏目录），
  * 同卷 rename 只是改目录项，几个 G 的视频也是毫秒级；一旦 rename 失败就直接报错，
  * 避免出现「拷 3G 文件卡半分钟」这种不可控的等待。
+ *
+ * 批量操作全部在一次 [Mutex] 内串行完成，结束时只做一次性媒体扫描和一次列表刷新，
+ * 避免逐条 emit 让网格抖动。
  */
 @Singleton
 class TrashRepository @Inject constructor(
@@ -40,29 +43,155 @@ class TrashRepository @Inject constructor(
 
     val totalSize: Flow<Long> = dao.observeTotalSize()
 
-    /** 移入回收站。成功后原文件已不在原位，照片/视频立即从相册消失。 */
-    suspend fun moveToTrash(photo: PhotoItem): TrashResult = withContext(Dispatchers.IO) {
-        if (!StorageAccess.hasFullAccess()) return@withContext TrashResult.NeedFullAccess
-        mutex.withLock { moveToTrashLocked(photo) }
-    }
-
-    /** 恢复到原路径；原目录不在会重新创建，重名自动加后缀 */
-    suspend fun restore(entry: TrashEntity): TrashResult = withContext(Dispatchers.IO) {
-        if (!StorageAccess.hasFullAccess()) return@withContext TrashResult.NeedFullAccess
-        mutex.withLock { restoreLocked(entry) }
-    }
-
-    /** 彻底删除（不可恢复） */
-    suspend fun deleteForever(entry: TrashEntity): TrashResult = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val file = File(entry.trashPath)
-            if (file.exists() && !file.delete()) {
-                TrashResult.Failed("删除失败：文件正被其他应用占用")
-            } else {
-                dao.deleteById(entry.id)
+    /** 单条移入回收站（详情页用） */
+    suspend fun moveToTrash(photo: PhotoItem): TrashResult =
+        when (val batch = moveToTrash(listOf(photo))) {
+            BatchTrashResult.NeedFullAccess -> TrashResult.NeedFullAccess
+            is BatchTrashResult.Done -> if (batch.success > 0) {
                 TrashResult.Success
+            } else {
+                TrashResult.Failed(batch.firstError ?: "移入回收站失败")
             }
         }
+
+    /** 批量移入回收站；成功后照片立即从相册消失 */
+    suspend fun moveToTrash(photos: List<PhotoItem>): BatchTrashResult = withContext(Dispatchers.IO) {
+        if (photos.isEmpty()) return@withContext BatchTrashResult.Done(0, 0, null)
+        if (!StorageAccess.hasFullAccess()) return@withContext BatchTrashResult.NeedFullAccess
+
+        mutex.withLock {
+            var success = 0
+            var failed = 0
+            var firstError: String? = null
+            val oldPaths = ArrayList<String>(photos.size)
+            val removedIds = ArrayList<Long>(photos.size)
+
+            photos.forEach { photo ->
+                when (val result = trashOne(photo)) {
+                    TrashResult.Success -> {
+                        success++
+                        oldPaths += photo.path
+                        removedIds += photo.id
+                    }
+
+                    is TrashResult.Failed -> {
+                        failed++
+                        if (firstError == null) firstError = result.message
+                    }
+
+                    TrashResult.NeedFullAccess -> {
+                        failed++
+                        if (firstError == null) firstError = "没有「所有文件访问权限」"
+                    }
+                }
+            }
+
+            if (oldPaths.isNotEmpty()) {
+                MediaScannerConnection.scanFile(context, oldPaths.toTypedArray(), null, null)
+            }
+            if (removedIds.isNotEmpty()) {
+                photoRepository.removeFromCache(removedIds)
+            }
+            BatchTrashResult.Done(success, failed, firstError)
+        }
+    }
+
+    /** 单条恢复 */
+    suspend fun restore(entry: TrashEntity): TrashResult =
+        when (val batch = restoreAll(listOf(entry))) {
+            BatchTrashResult.NeedFullAccess -> TrashResult.NeedFullAccess
+            is BatchTrashResult.Done -> if (batch.success > 0) {
+                TrashResult.Success
+            } else {
+                TrashResult.Failed(batch.firstError ?: "恢复失败")
+            }
+        }
+
+    /** 批量恢复：搬回原路径，原目录不在会重新创建，重名自动加后缀 */
+    suspend fun restoreAll(entries: List<TrashEntity>): BatchTrashResult = withContext(Dispatchers.IO) {
+        if (entries.isEmpty()) return@withContext BatchTrashResult.Done(0, 0, null)
+        if (!StorageAccess.hasFullAccess()) return@withContext BatchTrashResult.NeedFullAccess
+
+        mutex.withLock {
+            var success = 0
+            var failed = 0
+            var firstError: String? = null
+            val restoredPaths = ArrayList<String>(entries.size)
+
+            entries.forEach { entry ->
+                when (val result = restoreOne(entry)) {
+                    TrashResult.Success -> {
+                        success++
+                        restoredPaths += entry.originalPath
+                    }
+
+                    is TrashResult.Failed -> {
+                        failed++
+                        if (firstError == null) firstError = result.message
+                    }
+
+                    TrashResult.NeedFullAccess -> {
+                        failed++
+                        if (firstError == null) firstError = "没有「所有文件访问权限」"
+                    }
+                }
+            }
+
+            if (restoredPaths.isNotEmpty()) {
+                MediaScannerConnection.scanFile(context, restoredPaths.toTypedArray(), null, null)
+            }
+            if (success > 0) {
+                // 重新读一遍元数据，把照片放回相册
+                photoRepository.refresh()
+            }
+            BatchTrashResult.Done(success, failed, firstError)
+        }
+    }
+
+    /** 单条彻底删除 */
+    suspend fun deleteForever(entry: TrashEntity): TrashResult =
+        when (val batch = deleteForeverAll(listOf(entry))) {
+            BatchTrashResult.NeedFullAccess -> TrashResult.NeedFullAccess
+            is BatchTrashResult.Done -> if (batch.success > 0) {
+                TrashResult.Success
+            } else {
+                TrashResult.Failed(batch.firstError ?: "删除失败")
+            }
+        }
+
+    /** 批量彻底删除（不可恢复） */
+    suspend fun deleteForeverAll(entries: List<TrashEntity>): BatchTrashResult =
+        withContext(Dispatchers.IO) {
+            if (entries.isEmpty()) return@withContext BatchTrashResult.Done(0, 0, null)
+
+            mutex.withLock {
+                var success = 0
+                var failed = 0
+                var firstError: String? = null
+                val removedIds = ArrayList<Long>(entries.size)
+
+                entries.forEach { entry ->
+                    val file = File(entry.trashPath)
+                    if (file.exists() && !file.delete()) {
+                        failed++
+                        if (firstError == null) firstError = "删除失败：文件正被其他应用占用"
+                    } else {
+                        success++
+                        removedIds += entry.id
+                    }
+                }
+
+                if (removedIds.isNotEmpty()) {
+                    dao.deleteByIds(removedIds)
+                }
+                BatchTrashResult.Done(success, failed, firstError)
+            }
+        }
+
+    /** 清空回收站（不可恢复） */
+    suspend fun clearAll(): BatchTrashResult {
+        val all = withContext(Dispatchers.IO) { dao.findAll() }
+        return deleteForeverAll(all)
     }
 
     /** 清掉所有过期条目，返回清理条数；启动时跑一次即可 */
@@ -81,7 +210,8 @@ class TrashRepository @Inject constructor(
         }
     }
 
-    private suspend fun moveToTrashLocked(photo: PhotoItem): TrashResult {
+    /** 只做 rename + 落库；扫描与缓存更新由批量外层统一做 */
+    private suspend fun trashOne(photo: PhotoItem): TrashResult {
         val source = File(photo.path)
         if (photo.path.isEmpty() || !source.isFile) {
             return TrashResult.Failed("找不到原始文件")
@@ -112,13 +242,10 @@ class TrashRepository @Inject constructor(
                 expiresAt = now + RETENTION_MS
             )
         )
-        // 旧路径已空，让媒体库把这条记录摘掉
-        MediaScannerConnection.scanFile(context, arrayOf(source.absolutePath), null, null)
-        photoRepository.removeFromCache(photo.id)
         return TrashResult.Success
     }
 
-    private suspend fun restoreLocked(entry: TrashEntity): TrashResult {
+    private suspend fun restoreOne(entry: TrashEntity): TrashResult {
         val source = File(entry.trashPath)
         if (!source.isFile) {
             dao.deleteById(entry.id)
@@ -134,9 +261,6 @@ class TrashRepository @Inject constructor(
             return TrashResult.Failed("恢复失败：无法搬回原目录")
         }
         dao.deleteById(entry.id)
-        MediaScannerConnection.scanFile(context, arrayOf(target.absolutePath), null, null)
-        // 重新读一遍元数据，把这条照片放回相册
-        photoRepository.refresh()
         return TrashResult.Success
     }
 
@@ -202,4 +326,9 @@ sealed interface TrashResult {
     data object Success : TrashResult
     data object NeedFullAccess : TrashResult
     data class Failed(val message: String) : TrashResult
+}
+
+sealed interface BatchTrashResult {
+    data object NeedFullAccess : BatchTrashResult
+    data class Done(val success: Int, val failed: Int, val firstError: String?) : BatchTrashResult
 }

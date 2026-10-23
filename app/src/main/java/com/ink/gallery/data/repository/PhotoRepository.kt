@@ -198,6 +198,71 @@ class PhotoRepository @Inject constructor(
         }
 
     /**
+     * 批量移动（多选用）。
+     *
+     * 逐条改 MediaStore 的 `relative_path`；被系统拦下的条目收集起来，
+     * Android 11+ 一次性弹授权框（[BatchMoveResult.NeedPermission] 带回剩余项与已成功数），
+     * 用户确认后由调用方用 remaining 重试即可，已成功的不会重复处理。
+     *
+     * 全部结束后只调一次 [refresh]，避免几十次列表重排。
+     */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    suspend fun movePhotos(
+        photos: List<PhotoItem>,
+        targetRelativePath: String
+    ): BatchMoveResult = withContext(Dispatchers.IO) {
+        if (photos.isEmpty()) return@withContext BatchMoveResult.Done(0, 0, null)
+
+        val directory = targetRelativePath.trim('/').let { if (it.isEmpty()) "/" else "$it/" }
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, directory)
+        }
+
+        var success = 0
+        var failed = 0
+        var firstError: String? = null
+        val denied = ArrayList<PhotoItem>()
+
+        photos.forEach { photo ->
+            try {
+                val updated = contentResolver.update(photo.uri, values, null, null)
+                if (updated > 0) {
+                    success++
+                } else {
+                    failed++
+                    if (firstError == null) firstError = "移动失败：未找到该照片"
+                }
+            } catch (e: SecurityException) {
+                denied += photo
+            } catch (e: Exception) {
+                failed++
+                if (firstError == null) firstError = e.toMoveFailureMessage()
+            }
+        }
+
+        when {
+            denied.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                val request = MediaStore.createWriteRequest(contentResolver, denied.map { it.uri })
+                BatchMoveResult.NeedPermission(request.intentSender, denied, success)
+            }
+
+            denied.isNotEmpty() -> {
+                if (success > 0) refresh()
+                BatchMoveResult.Done(
+                    success = success,
+                    failed = failed + denied.size,
+                    firstError = firstError ?: "没有修改这些照片的权限"
+                )
+            }
+
+            else -> {
+                if (success > 0) refresh()
+                BatchMoveResult.Done(success, failed, firstError)
+            }
+        }
+    }
+
+    /**
      * 直接搬文件（需要有「所有文件访问权限」），搬完通知媒体库重新扫描。
      * 用于把照片放进 `DCIM` / `Pictures` 之外的目录——这类目标 MediaStore 不允许改。
      */
@@ -413,14 +478,18 @@ class PhotoRepository @Inject constructor(
         _mediaChanges.tryEmit(Unit)
     }
 
-    /** 删除（移入回收站）后把这一条从内存列表里摘掉，界面立即少一格 */
-    fun removeFromCache(photoId: Long) {
+    /** 删除（移入回收站）后把这些条目从内存列表里摘掉，界面立即少几格 */
+    fun removeFromCache(photoIds: Collection<Long>) {
+        if (photoIds.isEmpty()) return
         val current = cachedPhotos ?: return
-        val next = current.filterNot { it.id == photoId }
+        val ids = photoIds.toHashSet()
+        val next = current.filterNot { it.id in ids }
         cachedPhotos = next
         cachedGroups = next.groupBy { it.bucketId }
         _mediaChanges.tryEmit(Unit)
     }
+
+    fun removeFromCache(photoId: Long) = removeFromCache(listOf(photoId))
 
     /**
      * 自己移动成功后只把这一行在缓存里就地更新，不整表重查，
@@ -514,6 +583,25 @@ sealed interface MovePhotoResult {
     data object Moved : MovePhotoResult
     data class NeedPermission(val intentSender: IntentSender) : MovePhotoResult
     data class Failed(val message: String) : MovePhotoResult
+}
+
+/** 批量移动结果 */
+sealed interface BatchMoveResult {
+    data class Done(
+        val success: Int,
+        val failed: Int,
+        val firstError: String?
+    ) : BatchMoveResult
+
+    /**
+     * 部分条目需要用户授权；[remaining] 是还没搬成功的那些，
+     * [movedSoFar] 是本次之前已经搬成功的数量，重试后要累加。
+     */
+    data class NeedPermission(
+        val intentSender: IntentSender,
+        val remaining: List<PhotoItem>,
+        val movedSoFar: Int
+    ) : BatchMoveResult
 }
 
 /**

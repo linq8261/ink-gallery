@@ -11,6 +11,9 @@ interface TrashDao {
     @Query("SELECT * FROM trash ORDER BY deletedAt DESC")
     fun observeAll(): Flow<List<TrashEntity>>
 
+    @Query("SELECT * FROM trash")
+    suspend fun findAll(): List<TrashEntity>
+
     @Query("SELECT COUNT(*) FROM trash")
     fun observeCount(): Flow<Int>
 
@@ -25,4 +28,7 @@ interface TrashDao {
 
     @Query("DELETE FROM trash WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM trash WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 }

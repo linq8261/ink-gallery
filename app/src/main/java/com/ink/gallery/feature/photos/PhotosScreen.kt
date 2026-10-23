@@ -8,10 +8,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.ui.component.PhotoGrid
+import com.ink.gallery.ui.component.SelectionState
 
 @Composable
 fun PhotosScreen(
     onPhotoClick: (PhotoItem) -> Unit,
+    selection: SelectionState<PhotoItem>,
     viewModel: PhotosViewModel = hiltViewModel()
 ) {
     val photos by viewModel.photos.collectAsStateWithLifecycle()
@@ -20,6 +22,7 @@ fun PhotosScreen(
         photos = photos,
         onPhotoClick = onPhotoClick,
         onRefresh = { viewModel.refresh() },
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
+        selection = selection
     )
 }

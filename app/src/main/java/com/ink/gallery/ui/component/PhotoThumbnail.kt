@@ -2,6 +2,7 @@ package com.ink.gallery.ui.component
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -10,8 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +38,10 @@ import com.ink.gallery.util.formatDuration
 fun PhotoThumbnail(
     photo: PhotoItem,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 选择模式：显示左上角选择标记与选中遮罩；点击行为由调用方决定 */
+    selectionActive: Boolean = false,
+    selected: Boolean = false
 ) {
     val isGif = photo.mimeType.equals("image/gif", ignoreCase = true)
 
@@ -64,6 +70,23 @@ fun PhotoThumbnail(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
+
+        if (selectionActive) {
+            if (selected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                )
+            }
+            SelectionBadge(
+                selected = selected,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp)
+            )
+        }
+
         if (photo.isVideo) {
             Row(
                 modifier = Modifier
@@ -98,6 +121,36 @@ fun PhotoThumbnail(
                         shape = RoundedCornerShape(4.dp)
                     )
                     .padding(horizontal = 4.dp, vertical = 1.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SelectionBadge(
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(20.dp)
+            .clip(CircleShape)
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    Color.Black.copy(alpha = 0.25f)
+                }
+            )
+            .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(13.dp)
             )
         }
     }

@@ -2,6 +2,7 @@ package com.ink.gallery.feature.trash
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,9 +17,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.DeleteForever
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,6 +54,11 @@ import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.ui.component.EmptyView
 import com.ink.gallery.ui.component.PhotoGridSpec
 import com.ink.gallery.ui.component.PhotoThumbnail
+import com.ink.gallery.ui.component.SelectionAction
+import com.ink.gallery.ui.component.SelectionBottomBar
+import com.ink.gallery.ui.component.SelectionTopBar
+import com.ink.gallery.ui.component.gridDragSelect
+import com.ink.gallery.ui.component.rememberSelectionState
 import com.ink.gallery.util.formatFileSize
 import java.io.File
 import kotlin.math.ceil
@@ -64,28 +75,82 @@ fun TrashScreen(
     val totalSize by viewModel.totalSize.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var selected by remember { mutableStateOf<TrashEntity?>(null) }
+
+    val selection = rememberSelectionState<TrashEntity> { it.id }
+    val selectionActive = selection.isActive
+    val gridState = rememberLazyGridState()
+
+    var selectedEntry by remember { mutableStateOf<TrashEntity?>(null) }
+    var pendingDelete by remember { mutableStateOf<List<TrashEntity>>(emptyList()) }
+    var clearConfirmVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
         message?.let {
             Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
             viewModel.consumeMessage()
+            // 批量操作结束就退出选择模式
+            if (selection.isActive) selection.exit()
         }
     }
 
+    BackHandler(enabled = selectionActive) { selection.exit() }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("回收站") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回"
-                        )
+            if (selectionActive) {
+                SelectionTopBar(
+                    count = selection.count,
+                    allSelected = entries.isNotEmpty() && selection.count == entries.size,
+                    onExit = { selection.exit() },
+                    onToggleSelectAll = {
+                        if (entries.isNotEmpty() && selection.count == entries.size) {
+                            selection.clearSelection()
+                        } else {
+                            selection.selectAll(entries)
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("回收站") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (entries.isNotEmpty()) {
+                            IconButton(onClick = { clearConfirmVisible = true }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.DeleteSweep,
+                                    contentDescription = "清空回收站"
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+        },
+        bottomBar = {
+            if (selectionActive) {
+                SelectionBottomBar(
+                    actions = listOf(
+                        SelectionAction(
+                            icon = Icons.Outlined.Restore,
+                            label = "恢复",
+                            onClick = { viewModel.restoreAll(selection.selected) }
+                        ),
+                        SelectionAction(
+                            icon = Icons.Outlined.DeleteForever,
+                            label = "彻底删除",
+                            onClick = { pendingDelete = selection.selected }
+                        )
+                    )
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -107,18 +172,40 @@ fun TrashScreen(
             if (entries.isEmpty()) {
                 EmptyView(text = "回收站是空的")
             } else {
+                val dragModifier = if (entries.isNotEmpty()) {
+                    Modifier.gridDragSelect(
+                        gridState = gridState,
+                        items = entries,
+                        keyOf = { it.id },
+                        selection = selection
+                    )
+                } else {
+                    Modifier
+                }
+
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Fixed(PhotoGridSpec.COLUMNS),
                     contentPadding = PaddingValues(PhotoGridSpec.SPACING),
                     horizontalArrangement = Arrangement.spacedBy(PhotoGridSpec.SPACING),
                     verticalArrangement = Arrangement.spacedBy(PhotoGridSpec.SPACING),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(dragModifier)
                 ) {
                     items(items = entries, key = { it.id }) { entry ->
                         Box {
                             PhotoThumbnail(
                                 photo = entry.toPhotoItem(),
-                                onClick = { selected = entry }
+                                onClick = {
+                                    if (selectionActive) {
+                                        selection.toggle(entry)
+                                    } else {
+                                        selectedEntry = entry
+                                    }
+                                },
+                                selectionActive = selectionActive,
+                                selected = selection.isSelected(entry.id)
                             )
                             Text(
                                 text = "剩 ${remainingDays(entry)} 天",
@@ -140,8 +227,8 @@ fun TrashScreen(
         }
     }
 
-    selected?.let { entry ->
-        ModalBottomSheet(onDismissRequest = { selected = null }) {
+    selectedEntry?.let { entry ->
+        ModalBottomSheet(onDismissRequest = { selectedEntry = null }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -166,15 +253,15 @@ fun TrashScreen(
                 ) {
                     TextButton(
                         onClick = {
-                            selected = null
-                            viewModel.deleteForever(entry)
+                            selectedEntry = null
+                            pendingDelete = listOf(entry)
                         }
                     ) {
                         Text("彻底删除")
                     }
                     TextButton(
                         onClick = {
-                            selected = null
+                            selectedEntry = null
                             viewModel.restore(entry)
                         }
                     ) {
@@ -184,6 +271,49 @@ fun TrashScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
         }
+    }
+
+    if (pendingDelete.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = emptyList() },
+            title = { Text("彻底删除？") },
+            text = { Text("这 ${pendingDelete.size} 项将从回收站永久删除，无法恢复。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val targets = pendingDelete
+                        pendingDelete = emptyList()
+                        viewModel.deleteForeverAll(targets)
+                    }
+                ) {
+                    Text("彻底删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = emptyList() }) { Text("取消") }
+            }
+        )
+    }
+
+    if (clearConfirmVisible) {
+        AlertDialog(
+            onDismissRequest = { clearConfirmVisible = false },
+            title = { Text("清空回收站？") },
+            text = { Text("回收站内的 ${entries.size} 项将被永久删除，无法恢复。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        clearConfirmVisible = false
+                        viewModel.clearAll()
+                    }
+                ) {
+                    Text("清空")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { clearConfirmVisible = false }) { Text("取消") }
+            }
+        )
     }
 }
 

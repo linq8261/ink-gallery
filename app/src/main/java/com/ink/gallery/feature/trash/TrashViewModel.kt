@@ -3,6 +3,7 @@ package com.ink.gallery.feature.trash
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ink.gallery.data.local.TrashEntity
+import com.ink.gallery.data.repository.BatchTrashResult
 import com.ink.gallery.data.repository.TrashRepository
 import com.ink.gallery.data.repository.TrashResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -56,7 +57,42 @@ class TrashViewModel @Inject constructor(
         }
     }
 
+    fun restoreAll(entries: List<TrashEntity>) {
+        if (entries.isEmpty()) return
+        viewModelScope.launch {
+            when (val result = repository.restoreAll(entries)) {
+                BatchTrashResult.NeedFullAccess -> _message.value = "需要「所有文件访问权限」才能恢复"
+                is BatchTrashResult.Done -> _message.value = summarize("已恢复", result)
+            }
+        }
+    }
+
+    fun deleteForeverAll(entries: List<TrashEntity>) {
+        if (entries.isEmpty()) return
+        viewModelScope.launch {
+            when (val result = repository.deleteForeverAll(entries)) {
+                BatchTrashResult.NeedFullAccess -> _message.value = "需要「所有文件访问权限」才能删除"
+                is BatchTrashResult.Done -> _message.value = summarize("已彻底删除", result)
+            }
+        }
+    }
+
+    fun clearAll() {
+        viewModelScope.launch {
+            when (val result = repository.clearAll()) {
+                BatchTrashResult.NeedFullAccess -> _message.value = "需要「所有文件访问权限」才能删除"
+                is BatchTrashResult.Done -> _message.value = summarize("已清空回收站", result)
+            }
+        }
+    }
+
     fun consumeMessage() {
         _message.value = null
+    }
+
+    private fun summarize(prefix: String, result: BatchTrashResult.Done): String = when {
+        result.success == 0 -> result.firstError ?: "${prefix}失败"
+        result.failed == 0 -> "$prefix ${result.success} 项"
+        else -> "$prefix ${result.success} 项，${result.failed} 项失败：${result.firstError.orEmpty()}"
     }
 }

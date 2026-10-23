@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -30,10 +31,12 @@ object PhotoGridSpec {
 
 /**
  * 媒体网格。数据是仓库内存里的整份列表，直接交给 LazyGrid 自己 diff：
- * 移动/删除一张照片时只会有那一格发生变化，不会整屏重建，也就不需要加载圈。
+ * 移动/删除一张照片时只会有那一格发生变化，不会整屏重建。
  *
  * [photos] 为 null 表示「首次读取还没完成」，只有这一种情况才显示居中转圈；
  * 下拉刷新期间沿用旧列表，由 PullToRefreshBox 的下拉指示器表达进度。
+ *
+ * 传入 [selection] 后即支持长按多选与拖动连选；不传则是纯浏览网格。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,26 +45,43 @@ fun PhotoGrid(
     onPhotoClick: (PhotoItem) -> Unit,
     onRefresh: suspend () -> Unit,
     modifier: Modifier = Modifier,
-    emptyText: String = "没有找到照片或视频"
+    emptyText: String = "没有找到照片或视频",
+    selection: SelectionState<PhotoItem>? = null
 ) {
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
+
+    val list = photos
+    val selectionActive = selection?.isActive == true
+    val dragSelectModifier = if (selection != null && list != null) {
+        Modifier.gridDragSelect(
+            gridState = gridState,
+            items = list,
+            keyOf = { it.id },
+            selection = selection
+        )
+    } else {
+        Modifier
+    }
 
     PullToRefreshBox(
-        isRefreshing = refreshing,
+        isRefreshing = refreshing && !selectionActive,
         onRefresh = {
-            scope.launch {
-                refreshing = true
-                try {
-                    onRefresh()
-                } finally {
-                    refreshing = false
+            // 选择模式下不触发下拉刷新
+            if (!selectionActive) {
+                scope.launch {
+                    refreshing = true
+                    try {
+                        onRefresh()
+                    } finally {
+                        refreshing = false
+                    }
                 }
             }
         },
         modifier = modifier.fillMaxSize()
     ) {
-        val list = photos
         when {
             list == null -> Box(
                 modifier = Modifier.fillMaxSize(),
@@ -73,14 +93,24 @@ fun PhotoGrid(
             list.isEmpty() -> ScrollableFullScreen { EmptyView(text = emptyText) }
 
             else -> LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(PhotoGridSpec.COLUMNS),
                 contentPadding = PaddingValues(PhotoGridSpec.SPACING),
                 horizontalArrangement = Arrangement.spacedBy(PhotoGridSpec.SPACING),
                 verticalArrangement = Arrangement.spacedBy(PhotoGridSpec.SPACING),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(dragSelectModifier)
             ) {
                 items(items = list, key = { it.id }) { photo ->
-                    PhotoThumbnail(photo = photo, onClick = { onPhotoClick(photo) })
+                    PhotoThumbnail(
+                        photo = photo,
+                        onClick = {
+                            if (selectionActive) selection?.toggle(photo) else onPhotoClick(photo)
+                        },
+                        selectionActive = selectionActive,
+                        selected = selection?.isSelected(photo.id) == true
+                    )
                 }
             }
         }
