@@ -32,6 +32,7 @@ import coil.compose.AsyncImage
 import coil.decode.BitmapFactoryDecoder
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.PhotoItem
+import com.ink.gallery.ui.theme.InkTitleBar
 import com.ink.gallery.util.formatDuration
 
 @Composable
@@ -75,10 +76,12 @@ fun PhotoThumbnail(
 
         if (selectionActive) {
             if (selected) {
+                // 选中遮罩：黑色半透明覆盖 + 同色描边，比只换圆圈角标醒目得多
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .border(2.dp, InkTitleBar, RectangleShape)
                 )
             }
             SelectionBadge(
@@ -156,7 +159,8 @@ private fun SelectionBadge(
             .clip(CircleShape)
             .background(
                 if (selected) {
-                    MaterialTheme.colorScheme.primary
+                    // 与页面标题栏同色，多选时的视觉主线保持一致
+                    InkTitleBar
                 } else {
                     Color.Black.copy(alpha = 0.25f)
                 }
