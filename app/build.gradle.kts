@@ -100,6 +100,10 @@ dependencies {
     implementation(libs.coil.video)
     implementation(libs.coil.gif)
 
+    // 实况图（动态照片）播放：区间直读图片文件尾部内嵌的 MP4，不落临时文件
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)

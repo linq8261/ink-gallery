@@ -5,6 +5,8 @@ import android.os.Build
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ink.gallery.data.live.LiveInfo
+import com.ink.gallery.data.live.LivePhotoRepository
 import com.ink.gallery.data.model.Bucket
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.data.repository.BucketRepository
@@ -34,7 +36,8 @@ class PhotoViewerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: PhotoRepository,
     private val bucketRepository: BucketRepository,
-    private val trashRepository: TrashRepository
+    private val trashRepository: TrashRepository,
+    private val livePhotoRepository: LivePhotoRepository
 ) : ViewModel() {
 
     private val photoId: Long = savedStateHandle.get<Long>(NavRoutes.ARG_PHOTO_ID) ?: -1L
@@ -60,8 +63,21 @@ class PhotoViewerViewModel @Inject constructor(
 
     private var pendingMove: Pair<PhotoItem, Bucket>? = null
 
+    /** 已确认的实况图（photoId → 内嵌视频位置），长按播放与详情页都读它 */
+    val livePhotos: StateFlow<Map<Long, LiveInfo>> = livePhotoRepository.livePhotos
+
     init {
         loadInitial()
+    }
+
+    /**
+     * 当前页可能是实况图时调一次：命中缓存立即返回，未探测过的单张解析（几十毫秒）。
+     * 这里不阻塞界面——解析完 livePhotos 会推一次新状态，角标与长按能力随之生效。
+     */
+    fun ensureLive(photo: PhotoItem) {
+        if (photo.isVideo) return
+        if (livePhotos.value.containsKey(photo.id)) return
+        viewModelScope.launch { livePhotoRepository.resolveNow(photo) }
     }
 
     /**

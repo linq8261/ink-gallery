@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.activity.result.IntentSenderRequest
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ink.gallery.data.live.LiveInfo
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.ui.component.rememberHasFullAccess
 import com.ink.gallery.util.DateFormatter
@@ -77,6 +78,7 @@ fun PhotoViewerScreen(
     val movePermission by viewModel.movePermission.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val needFullAccess by viewModel.needFullAccess.collectAsStateWithLifecycle()
+    val livePhotos by viewModel.livePhotos.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // 删除依赖「所有文件访问权限」，没有时删除按钮置灰并引导
     val hasFullAccess = rememberHasFullAccess()
@@ -87,7 +89,12 @@ fun PhotoViewerScreen(
     var detailsVisible by remember { mutableStateOf(false) }
     var moveSheetVisible by remember { mutableStateOf(false) }
     var fullAccessGuideVisible by remember { mutableStateOf(false) }
+    /** 正在长按播放实况的那张图，null 表示没有在播 */
+    var livePressing by remember { mutableStateOf<Long?>(null) }
     val detailsVisibleState = rememberUpdatedState(detailsVisible)
+
+    // 长按起播后手指抬起就复位：正常结束由播放器的 STATE_ENDED 回到这里
+    val stopLive = { livePressing = null }
 
     BackHandler(enabled = detailsVisible) { detailsVisible = false }
 
@@ -143,13 +150,18 @@ fun PhotoViewerScreen(
 
     val currentPhoto = photos.getOrNull(pagerState.currentPage)
 
+    // 翻到新的一页时按需探测一次实况（命中缓存立即返回）
+    LaunchedEffect(currentPhoto?.id) {
+        currentPhoto?.let { viewModel.ensureLive(it) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            // 上滑唤出详情：放大状态下禁用，避免与拖拽图片冲突
-            .pointerInput(zoomed) {
-                if (zoomed) return@pointerInput
+            // 上滑唤出详情：放大或正在播实况时禁用，避免与拖拽冲突
+            .pointerInput(zoomed, livePressing) {
+                if (zoomed || livePressing != null) return@pointerInput
                 val threshold = DETAIL_DRAG_THRESHOLD.toPx()
                 var accumulated = 0f
                 detectVerticalDragGestures(
@@ -168,7 +180,7 @@ fun PhotoViewerScreen(
     ) {
         HorizontalPager(
             state = pagerState,
-            userScrollEnabled = !zoomed,
+            userScrollEnabled = !zoomed && livePressing == null,
             modifier = Modifier.fillMaxSize()
         ) { page ->
             val photo = photos.getOrNull(page)
@@ -183,10 +195,26 @@ fun PhotoViewerScreen(
                     ZoomableImage(
                         photo = photo,
                         onTap = { barsVisible = !barsVisible },
-                        onZoomChanged = { zoomed = it }
+                        onZoomChanged = { zoomed = it },
+                        liveAvailable = livePhotos.containsKey(photo.id),
+                        onLivePressStart = { livePressing = photo.id },
+                        onLivePressEnd = stopLive
                     )
                 }
             }
+        }
+
+        // 实况播放层：盖在静态图上，只在这一页确实是实况时才挂
+        val liveInfo = currentPhoto?.let { livePhotos[it.id] }
+        if (currentPhoto != null && liveInfo != null) {
+            LivePhotoPlayback(
+                photo = currentPhoto,
+                info = liveInfo,
+                playing = livePressing == currentPhoto.id,
+                // 停稳后先 prepare，长按下去基本零等待；快速翻页时不建播放器
+                prewarm = !pagerState.isScrollInProgress,
+                onEnded = stopLive
+            )
         }
 
         if (barsVisible) {
@@ -261,6 +289,7 @@ fun PhotoViewerScreen(
             currentPhoto?.let { photo ->
                 PhotoDetailsSheet(
                     photo = photo,
+                    live = livePhotos[photo.id],
                     onDismiss = { detailsVisible = false }
                 )
             }
@@ -310,6 +339,7 @@ fun PhotoViewerScreen(
 @Composable
 private fun PhotoDetailsSheet(
     photo: PhotoItem,
+    live: LiveInfo?,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -377,6 +407,16 @@ private fun PhotoDetailsSheet(
                     "未知"
                 }
             )
+            if (live != null) {
+                DetailRow(
+                    label = "实况",
+                    value = if (live.durationMs > 0) {
+                        "内嵌视频 ${formatDuration(live.durationMs)}（长按播放）"
+                    } else {
+                        "内嵌视频（长按播放）"
+                    }
+                )
+            }
             if (photo.isVideo) {
                 DetailRow(label = "时长", value = formatDuration(photo.durationMs))
             }

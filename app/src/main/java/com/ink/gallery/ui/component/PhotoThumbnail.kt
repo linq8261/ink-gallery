@@ -41,7 +41,9 @@ fun PhotoThumbnail(
     modifier: Modifier = Modifier,
     /** 选择模式：显示左上角选择标记与选中遮罩；点击行为由调用方决定 */
     selectionActive: Boolean = false,
-    selected: Boolean = false
+    selected: Boolean = false,
+    /** 实况图：左下角显示 LIVE 角标（探测结果来自 LivePhotoRepository） */
+    live: Boolean = false
 ) {
     val isGif = photo.mimeType.equals("image/gif", ignoreCase = true)
 
@@ -115,6 +117,23 @@ fun PhotoThumbnail(
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
+                    .padding(4.dp)
+                    .background(
+                        color = Color.Black.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            )
+        }
+
+        // 实况图角标放左下：右下已被视频时长 / GIF 占用
+        if (live) {
+            Text(
+                text = "LIVE",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
                     .padding(4.dp)
                     .background(
                         color = Color.Black.copy(alpha = 0.55f),

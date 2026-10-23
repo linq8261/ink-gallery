@@ -17,12 +17,14 @@ fun PhotosScreen(
     viewModel: PhotosViewModel = hiltViewModel()
 ) {
     val photos by viewModel.photos.collectAsStateWithLifecycle()
+    val liveIds by viewModel.liveIds.collectAsStateWithLifecycle()
 
     PhotoGrid(
         photos = photos,
         onPhotoClick = onPhotoClick,
         onRefresh = { viewModel.refresh() },
         modifier = Modifier.fillMaxSize(),
-        selection = selection
+        selection = selection,
+        liveIds = liveIds
     )
 }

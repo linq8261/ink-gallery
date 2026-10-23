@@ -53,6 +53,7 @@ fun BucketDetailScreen(
 ) {
     val title by viewModel.title.collectAsStateWithLifecycle()
     val photos by viewModel.photos.collectAsStateWithLifecycle()
+    val liveIds by viewModel.liveIds.collectAsStateWithLifecycle()
     val selectionMessage by selectionViewModel.message.collectAsStateWithLifecycle()
     val moveTargets by selectionViewModel.moveTargets.collectAsStateWithLifecycle()
     val isTargetsLoading by selectionViewModel.isTargetsLoading.collectAsStateWithLifecycle()
@@ -157,7 +158,8 @@ fun BucketDetailScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                selection = selection
+                selection = selection,
+                liveIds = liveIds
             )
 
             if (moveSheetVisible) {

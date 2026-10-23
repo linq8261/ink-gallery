@@ -3,6 +3,7 @@ package com.ink.gallery.feature.bucketdetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ink.gallery.data.live.LivePhotoRepository
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.data.repository.BucketRepository
 import com.ink.gallery.data.repository.PhotoRepository
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -21,7 +23,8 @@ import javax.inject.Inject
 class BucketDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val bucketRepository: BucketRepository,
-    private val repository: PhotoRepository
+    private val repository: PhotoRepository,
+    private val livePhotoRepository: LivePhotoRepository
 ) : ViewModel() {
 
     val bucketId: Long = savedStateHandle.get<Long>(NavRoutes.ARG_BUCKET_ID) ?: NO_BUCKET_ID
@@ -38,9 +41,17 @@ class BucketDetailViewModel @Inject constructor(
         .map<List<PhotoItem>, List<PhotoItem>?> { it }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /** 实况图 id 集合，用于网格角标 */
+    val liveIds: StateFlow<Set<Long>> = livePhotoRepository.livePhotos
+        .map { it.keys.toSet() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
     init {
         viewModelScope.launch {
             _title.value = runCatching { bucketRepository.getBucketName(bucketId) }.getOrNull().orEmpty()
+        }
+        viewModelScope.launch {
+            photos.filterNotNull().collect { livePhotoRepository.prefetch(it) }
         }
     }
 

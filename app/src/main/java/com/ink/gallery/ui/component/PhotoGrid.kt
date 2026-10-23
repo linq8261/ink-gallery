@@ -44,7 +44,9 @@ fun PhotoGrid(
     onRefresh: suspend () -> Unit,
     modifier: Modifier = Modifier,
     emptyText: String = "没有找到照片或视频",
-    selection: SelectionState<PhotoItem>? = null
+    selection: SelectionState<PhotoItem>? = null,
+    /** 已确认的实况图 id 集合，用于角标；随探测结果增量变化 */
+    liveIds: Set<Long> = emptySet()
 ) {
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -102,7 +104,8 @@ fun PhotoGrid(
                             if (selectionActive) selection?.toggle(photo) else onPhotoClick(photo)
                         },
                         selectionActive = selectionActive,
-                        selected = selection?.isSelected(photo.id) == true
+                        selected = selection?.isSelected(photo.id) == true,
+                        live = photo.id in liveIds
                     )
                 }
             }
