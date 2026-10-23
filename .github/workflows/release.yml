@@ -103,14 +103,17 @@ jobs:
           chmod +x gradlew
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME/platforms" 2>/dev/null || echo "无法列出 platforms"
+          # runner 用 bash -e 执行，pipefail 会让失败直接退出、跳过下面的诊断，所以这里先关掉
+          set +e
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee gradle-build.log
+          ./gradlew assembleRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
           STATUS=${PIPESTATUS[0]}
+          set -e
           if [ "$STATUS" -ne 0 ]; then
-            # 把关键报错重新打成注解，方便在网页/接口里直接看到失败原因
+            # 把关键报错重新打成注解，方便直接看到失败原因
             echo "::error::Gradle 构建失败，关键日志如下"
-            grep -n -E "FAILURE|What went wrong|error:|Caused by|Could not|not found|does not exist|Keystore|heap|SDK" gradle-build.log \
-              | tail -n 25 | while IFS= read -r line; do echo "::error::$line"; done
+            grep -E "FAILURE|What went wrong|error:|Caused by|Could not|not found|does not exist|Keystore|heap|SDK|> " gradle-build.log \
+              | tail -n 8 | while IFS= read -r line; do echo "::error::$line"; done
             ls -l app/build/outputs/apk/release/ 2>/dev/null || echo "release 输出目录不存在"
             exit 1
           fi
