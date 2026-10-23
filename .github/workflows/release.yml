@@ -62,31 +62,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 仓库里的 wrapper 指向本机 D 盘的 zip（本机离线用），Linux runner 上没有；
-      # 之前的写法（改 wrapper 地址 + setup-gradle）会被解析成 downloads.gradle.org/distributions/gradle-8.10.2
-      # 这种没有 -bin.zip 后缀的地址而 404，所以这里干脆自己下载一份 Gradle，完全绕开 wrapper。
-      - name: 安装 Gradle
-        run: |
-          PROPS=gradle/wrapper/gradle-wrapper.properties
-          VER=$(grep -oP 'gradle-\K[0-9.]+(?=-all\.zip)' "$PROPS" || true)
-          VER=${VER:-8.10.2}
-          echo "使用 Gradle $VER"
-          for URL in \
-            "https://services.gradle.org/distributions/gradle-$VER-bin.zip" \
-            "https://downloads.gradle.org/distributions/gradle-$VER-bin.zip" \
-            "https://mirrors.cloud.tencent.com/gradle/gradle-$VER-bin.zip"; do
-            echo "尝试 $URL"
-            if curl -fsSL --retry 2 -o /tmp/gradle.zip "$URL"; then
-              unzip -q -o /tmp/gradle.zip -d "$HOME/gradle-dist"
-              break
-            fi
-          done
-          if [ ! -x "$HOME/gradle-dist/gradle-$VER/bin/gradle" ]; then
-            echo "::error::Gradle $VER 下载失败"
-            exit 1
-          fi
-          echo "$HOME/gradle-dist/gradle-$VER/bin" >> "$GITHUB_PATH"
-          "$HOME/gradle-dist/gradle-$VER/bin/gradle" --version
+      # 仓库里的 wrapper 指向本机 D 盘的 zip（本机离线用），CI 上没有。
+      # 交给 setup-gradle 指定版本安装，完全不读仓库里的 wrapper，绕开这个坑。
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
 
       - name: 还原签名配置
         run: |
