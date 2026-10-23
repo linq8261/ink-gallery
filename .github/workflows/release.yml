@@ -62,6 +62,24 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # 仓库里的 wrapper 指向本机 D 盘的 gradle zip（本机离线用），Linux runner 上没有这个文件。
+      # 这里按同一版本号改写成官方地址，并去掉 sha 校验（本地 zip 的校验和不一定与官方一致）。
+      - name: 修正 Gradle wrapper 地址
+        run: |
+          set -euo pipefail
+          PROPS=gradle/wrapper/gradle-wrapper.properties
+          VER=$(grep -oP 'gradle-\K[0-9.]+(?=-all\.zip)' "$PROPS")
+          echo "wrapper 版本：$VER"
+          cat > "$PROPS" <<EOF
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-$VER-all.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
