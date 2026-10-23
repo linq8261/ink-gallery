@@ -62,26 +62,31 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 仓库里的 wrapper 指向本机 D 盘的 gradle zip（本机离线用），Linux runner 上没有这个文件。
-      # 这里按同一版本号改写成官方地址，并去掉 sha 校验（本地 zip 的校验和不一定与官方一致）。
-      - name: 修正 Gradle wrapper 地址
+      # 仓库里的 wrapper 指向本机 D 盘的 zip（本机离线用），Linux runner 上没有；
+      # 之前的写法（改 wrapper 地址 + setup-gradle）会被解析成 downloads.gradle.org/distributions/gradle-8.10.2
+      # 这种没有 -bin.zip 后缀的地址而 404，所以这里干脆自己下载一份 Gradle，完全绕开 wrapper。
+      - name: 安装 Gradle
         run: |
-          set -euo pipefail
           PROPS=gradle/wrapper/gradle-wrapper.properties
-          VER=$(grep -oP 'gradle-\K[0-9.]+(?=-all\.zip)' "$PROPS")
-          echo "wrapper 版本：$VER"
-          cat > "$PROPS" <<EOF
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-$VER-all.zip
-          networkTimeout=10000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+          VER=$(grep -oP 'gradle-\K[0-9.]+(?=-all\.zip)' "$PROPS" || true)
+          VER=${VER:-8.10.2}
+          echo "使用 Gradle $VER"
+          for URL in \
+            "https://services.gradle.org/distributions/gradle-$VER-bin.zip" \
+            "https://downloads.gradle.org/distributions/gradle-$VER-bin.zip" \
+            "https://mirrors.cloud.tencent.com/gradle/gradle-$VER-bin.zip"; do
+            echo "尝试 $URL"
+            if curl -fsSL --retry 2 -o /tmp/gradle.zip "$URL"; then
+              unzip -q -o /tmp/gradle.zip -d "$HOME/gradle-dist"
+              break
+            fi
+          done
+          if [ ! -x "$HOME/gradle-dist/gradle-$VER/bin/gradle" ]; then
+            echo "::error::Gradle $VER 下载失败"
+            exit 1
+          fi
+          echo "$HOME/gradle-dist/gradle-$VER/bin" >> "$GITHUB_PATH"
+          "$HOME/gradle-dist/gradle-$VER/bin/gradle" --version
 
       - name: 还原签名配置
         run: |
@@ -100,13 +105,12 @@ jobs:
 
       - name: 构建 release APK
         run: |
-          chmod +x gradlew
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME/platforms" 2>/dev/null || echo "无法列出 platforms"
           # runner 用 bash -e 执行，pipefail 会让失败直接退出、跳过下面的诊断，所以这里先关掉
           set +e
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
+          gradle assembleRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
           STATUS=${PIPESTATUS[0]}
           set -e
           if [ "$STATUS" -ne 0 ]; then
