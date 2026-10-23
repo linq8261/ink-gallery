@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        三处必须共用同一个色值，否则冷启动首帧上屏的一瞬会颜色跳变：
+        1. Theme.InkGallery.Starting 的 windowSplashScreenBackground（启动窗口）
+        2. Theme.InkGallery 的 android:windowBackground（Activity 窗口底色）
+        3. Compose 的 colorScheme.background / surface（见 ui/theme/Theme.kt）
+        值取自 Material3 默认 lightColorScheme 的 background，与原视觉零差异。
+    -->
+    <color name="ink_background">#FFFEF7FF</color>
+</resources>
