@@ -10,6 +10,7 @@ import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import com.ink.gallery.data.repository.PhotoRepository
 import com.ink.gallery.data.repository.TrashRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -24,10 +25,18 @@ class InkGalleryApplication : Application(), ImageLoaderFactory {
     @Inject
     lateinit var trashRepository: TrashRepository
 
+    /**
+     * 提前注入：让照片仓库在 [onCreate] 阶段就完成构造。
+     * 构造时会立刻启动磁盘快照的读取，比等首页 ViewModel 创建再开始早一个 Compose 首帧的量级。
+     */
+    @Inject
+    lateinit var photoRepository: PhotoRepository
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
+        photoRepository.warmUp()
         // 回收站保留 30 天：每次启动清一次过期条目（含文件本体）
         appScope.launch {
             runCatching { trashRepository.purgeExpired() }

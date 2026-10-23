@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -39,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.decode.BitmapFactoryDecoder
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.Bucket
+import com.ink.gallery.ui.component.DelayedProgressIndicator
 import com.ink.gallery.ui.component.EmptyView
 import com.ink.gallery.util.DateFormatter
 
@@ -59,9 +59,9 @@ fun BucketsScreen(
         modifier = Modifier.fillMaxSize()
     ) {
         when {
-            // 首次加载用居中转圈；刷新时保留列表，由顶部下拉指示器表示进度
+            // 首次加载用延迟出现的居中转圈；刷新时保留列表，由顶部下拉指示器表示进度
             uiState.isLoading && uiState.buckets.isEmpty() ->
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                DelayedProgressIndicator(modifier = Modifier.fillMaxSize())
 
             uiState.buckets.isEmpty() -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {

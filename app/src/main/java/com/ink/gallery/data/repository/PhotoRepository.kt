@@ -15,12 +15,17 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.os.SystemClock
 import android.provider.MediaStore
+import android.util.Log
 import androidx.annotation.RequiresApi
+import com.ink.gallery.data.local.PhotoSnapshotStore
 import com.ink.gallery.data.model.MediaType
 import com.ink.gallery.data.model.PhotoItem
+import com.ink.gallery.util.PermissionUtil
 import com.ink.gallery.util.StorageAccess
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,7 +60,8 @@ import javax.inject.Singleton
 @Singleton
 class PhotoRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val contentResolver: ContentResolver
+    private val contentResolver: ContentResolver,
+    private val snapshotStore: PhotoSnapshotStore
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -67,7 +73,18 @@ class PhotoRepository @Inject constructor(
     @Volatile
     private var cachedGroups: Map<Long, List<PhotoItem>>? = null
 
+    /** 磁盘快照读取完成（无论有没有读到）后完成；[observePhotos] 的首帧等它 */
+    private val snapshotLoaded = CompletableDeferred<Unit>()
+
+    /**
+     * 首次全量读取还没落地时收到过媒体库变化。
+     * 此时不清缓存（正在跑的就是最新查询），改为在首次读取结束后补一次后台核对。
+     */
+    @Volatile
+    private var pendingVerify = false
+
     private var invalidateJob: Job? = null
+    private var snapshotJob: Job? = null
 
     /**
      * 本进程内被移动过的相册目录（绝对路径 → 时间戳）。
@@ -93,10 +110,41 @@ class PhotoRepository @Inject constructor(
     init {
         contentResolver.registerContentObserver(IMAGE_COLLECTION, true, mediaObserver)
         contentResolver.registerContentObserver(VIDEO_COLLECTION, true, mediaObserver)
+        // 冷启动先读磁盘快照：只为了让首帧立刻有列表可渲染，随后由后台全量核对覆盖。
+        // 读快照期间不阻塞任何调用方——observePhotos 的 onStart 会 await 这个信号。
+        scope.launch {
+            val startedAt = SystemClock.elapsedRealtime()
+            val snapshot = runCatching { snapshotStore.read() }.getOrNull()
+            if (snapshot != null && snapshot.isNotEmpty() && cachedPhotos == null) {
+                cachedGroups = snapshot.groupBy { it.bucketId }
+                cachedPhotos = snapshot
+                Log.i(
+                    TAG,
+                    "snapshot hit: ${snapshot.size} 条 / ${SystemClock.elapsedRealtime() - startedAt}ms" +
+                        "（进程启动后 ${SystemClock.elapsedRealtime()}ms 就绪）"
+                )
+                // 快照只负责快、不负责准：立刻在后台跑一次全量查询核对
+                scope.launch { verifyWithMediaStore() }
+            } else {
+                Log.i(
+                    TAG,
+                    "snapshot miss（读到 ${snapshot?.size ?: -1} 条）/ " +
+                        "${SystemClock.elapsedRealtime() - startedAt}ms，将走全量扫描"
+                )
+            }
+            snapshotLoaded.complete(Unit)
+        }
     }
 
     /**
-     * 照片列表的变化流：订阅时先给一份当前数据（命中缓存就是内存操作），
+     * 进程启动阶段预热：让 Hilt 提前构造本仓库，
+     * 把「读快照」这件事从「ViewModel 创建时」提到「Application.onCreate 时」。
+     * 构造本身已在 init 中启动快照读取，这里只是让调用点显式、可读。
+     */
+    fun warmUp() = Unit
+
+    /**
+     * 照片列表的变化流：订阅时先给一份当前数据（命中内存或磁盘快照就是纯 IO 读，不打圈），
      * 之后媒体库变化、自己移动照片时再重读一次。
      *
      * 界面只需要 collect 这份列表，不做「整屏重建」——缓存被就地更新后，
@@ -105,7 +153,11 @@ class PhotoRepository @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun observePhotos(bucketId: Long? = null): Flow<List<PhotoItem>> =
         mediaChanges
-            .onStart { emit(Unit) }
+            .onStart {
+                // 等快照读完再发首帧：读一个 1MB 级顺序文件，比全量扫 MediaStore 快一个数量级
+                snapshotLoaded.await()
+                emit(Unit)
+            }
             // 连续变化时只保留最新一次读取，避免旧结果后到覆盖新结果
             .mapLatest { loadPhotos(bucketId) }
 
@@ -346,17 +398,84 @@ class PhotoRepository @Inject constructor(
     /**
      * 读取照片元数据。首次会真正查询 MediaStore，之后命中内存缓存；
      * 传入 bucketId 时返回该相册的子集（同样来自缓存）。
+     *
+     * 冷启动时若磁盘快照可用，[cachedPhotos] 在 init 阶段就已填好，
+     * 这里直接返回、不产生任何查询。
      */
     private suspend fun loadPhotos(bucketId: Long? = null): List<PhotoItem> {
         val all = cachedPhotos ?: cacheMutex.withLock {
-            cachedPhotos ?: withContext(Dispatchers.IO) { queryPhotos() }.also { photos ->
+            cachedPhotos ?: run {
+                val startedAt = SystemClock.elapsedRealtime()
+                val photos = withContext(Dispatchers.IO) { queryPhotos() }
+                Log.i(
+                    TAG,
+                    "全量扫描: ${photos.size} 条 / ${SystemClock.elapsedRealtime() - startedAt}ms" +
+                        "（进程启动后 ${SystemClock.elapsedRealtime()}ms）"
+                )
                 cachedGroups = photos.groupBy { it.bucketId }
                 cachedPhotos = photos
+                persistSnapshot()
+                // 首次查询期间媒体库有过变化：查询可能已错过那次变化，补一次后台核对
+                if (pendingVerify) {
+                    pendingVerify = false
+                    scope.launch { verifyWithMediaStore() }
+                }
+                photos
             }
         }
         if (bucketId == null) return all
         return cachedGroups?.get(bucketId).orEmpty()
     }
+
+    /**
+     * 用一次全量查询核对当前缓存（通常就是刚读出来的磁盘快照）。
+     *
+     * 内容一致时**什么都不做**——不更新 Flow、不触发重组，界面连一帧抖动都不会有；
+     * 不一致才替换缓存并通知界面重读。无论哪种情况都顺手把最新结果写回快照。
+     */
+    private suspend fun verifyWithMediaStore() {
+        // 没有媒体权限时查询只会得到空列表，不能拿它当真相把快照清空
+        if (!PermissionUtil.hasMediaPermission(context)) return
+        val startedAt = SystemClock.elapsedRealtime()
+        val fresh = runCatching { withContext(Dispatchers.IO) { queryPhotos() } }.getOrNull()
+            ?: return
+        val current = cachedPhotos
+        val identical = current != null && sameContent(current, fresh)
+        Log.i(
+            TAG,
+            "后台核对: ${fresh.size} 条 / ${SystemClock.elapsedRealtime() - startedAt}ms，" +
+                if (identical) "与快照一致，不刷新界面" else "有差异，替换缓存"
+        )
+        if (identical) return
+        cachedGroups = fresh.groupBy { it.bucketId }
+        cachedPhotos = fresh
+        persistSnapshot()
+        _mediaChanges.tryEmit(Unit)
+    }
+
+    /**
+     * 把当前缓存写回磁盘快照。防抖 500ms：批量移动/删除会连着改好几次缓存，
+     * 没必要每次都落一遍 1MB 级的文件。
+     */
+    private fun persistSnapshot() {
+        // 无权限时缓存只是个空壳，落盘只会污染下次启动
+        if (!PermissionUtil.hasMediaPermission(context)) return
+        val photos = cachedPhotos ?: return
+        snapshotJob?.cancel()
+        snapshotJob = scope.launch {
+            delay(SNAPSHOT_WRITE_DEBOUNCE_MS)
+            runCatching { snapshotStore.write(photos) }
+                .onFailure { Log.w(TAG, "快照写入失败", it) }
+        }
+    }
+
+    /**
+     * 两份列表是否完全一致（data class 逐字段比较，含顺序）。
+     *
+     * 不挑字段省时间——漏掉任何一个字段都会变成「媒体库变了但界面不刷」的隐蔽 bug，
+     * 而万条级别的比较也就十几毫秒，还发生在后台线程。
+     */
+    private fun sameContent(a: List<PhotoItem>, b: List<PhotoItem>): Boolean = a == b
 
     private fun queryPhotos(
         selection: String? = null,
@@ -473,6 +592,13 @@ class PhotoRepository @Inject constructor(
     }
 
     private fun invalidate() {
+        if (cachedPhotos == null) {
+            // 首次读取还没落地：正在跑的那次查询读到的就是最新状态，
+            // 此时清缓存只会让 mapLatest 取消重跑一遍，白白多扫一次全量。
+            // 先记下这次变化，等首次读取结束后补一次后台核对。
+            pendingVerify = true
+            return
+        }
         cachedPhotos = null
         cachedGroups = null
         _mediaChanges.tryEmit(Unit)
@@ -486,6 +612,7 @@ class PhotoRepository @Inject constructor(
         val next = current.filterNot { it.id in ids }
         cachedPhotos = next
         cachedGroups = next.groupBy { it.bucketId }
+        persistSnapshot()
         _mediaChanges.tryEmit(Unit)
     }
 
@@ -509,10 +636,17 @@ class PhotoRepository @Inject constructor(
         val next = (current.filterNot { it.id == photoId } + moved).sortedWith(PHOTO_ORDER)
         cachedPhotos = next
         cachedGroups = next.groupBy { it.bucketId }
+        persistSnapshot()
     }
 
     private companion object {
+        /** 启动耗时诊断：`adb logcat -s InkStartup` */
+        const val TAG = "InkStartup"
+
         const val INVALIDATE_DEBOUNCE_MS = 300L
+
+        /** 缓存变更后写回磁盘快照的防抖，批量操作会连着改好几次缓存 */
+        const val SNAPSHOT_WRITE_DEBOUNCE_MS = 500L
 
         val IMAGE_COLLECTION: Uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val VIDEO_COLLECTION: Uri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
