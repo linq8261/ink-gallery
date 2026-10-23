@@ -110,10 +110,9 @@ jobs:
           STATUS=${PIPESTATUS[0]}
           set -e
           if [ "$STATUS" -ne 0 ]; then
-            # 把关键报错重新打成注解，方便直接看到失败原因
-            echo "::error::Gradle 构建失败，关键日志如下"
-            grep -E "FAILURE|What went wrong|error:|Caused by|Could not|not found|does not exist|Keystore|heap|SDK|> " gradle-build.log \
-              | tail -n 8 | while IFS= read -r line; do echo "::error::$line"; done
+            # 把日志尾部重新打成注解，方便直接在网页/接口里看到失败原因
+            echo "::error::Gradle 构建失败（exit=$STATUS，日志 $(wc -l < gradle-build.log) 行），尾部如下"
+            tail -n 8 gradle-build.log | while IFS= read -r line; do echo "::error::$line"; done
             ls -l app/build/outputs/apk/release/ 2>/dev/null || echo "release 输出目录不存在"
             exit 1
           fi
