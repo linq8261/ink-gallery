@@ -302,15 +302,27 @@ Write-Host "  删除同名附件: $removed 个" -ForegroundColor Green
 Write-Step '7/7' '上传 APK...'
 
 try {
-    $uploaded = Invoke-RestMethod -Uri "$apiBase/releases/$releaseId/attach_files" -Method Post -Form @{
-        access_token = $Token
-        file         = Get-Item -LiteralPath $apkPath
+    $uploaded = Invoke-RestMethod -Uri "$apiBase/releases/$releaseId/attach_files?access_token=$([uri]::EscapeDataString($Token))" -Method Post -Form @{
+        file = Get-Item -LiteralPath $apkPath
     }
 } catch {
     Fail "上传附件失败（HTTP $(Get-HttpStatus $_)）：$(Get-HttpBody $_)"
 }
 
 $downloadUrl = if ($uploaded.browser_download_url) { $uploaded.browser_download_url } else { '(未返回下载地址)' }
+
+# ---------- 复制一份到桌面 ----------
+$desktopApkPath = $null
+try {
+    $desktopDir = [Environment]::GetFolderPath('Desktop')
+    if (-not $desktopDir) { throw '无法获取桌面路径' }
+    $desktopApkPath = Join-Path $desktopDir $apkName
+    Copy-Item -LiteralPath $apkPath -Destination $desktopApkPath -Force
+    Write-Host "  已复制到桌面: $desktopApkPath" -ForegroundColor Green
+} catch {
+    $desktopApkPath = $null
+    Write-Host "  [警告] 复制到桌面失败：$($_.Exception.Message)" -ForegroundColor DarkYellow
+}
 
 Write-Host ''
 Write-Host '========================================' -ForegroundColor Cyan
@@ -319,4 +331,7 @@ Write-Host '========================================' -ForegroundColor Cyan
 Write-Host "  Release : https://gitee.com/$Owner/$Repo/releases/tag/$Tag" -ForegroundColor Green
 Write-Host "  下载地址: $downloadUrl" -ForegroundColor Green
 Write-Host "  APK     : $apkName ($apkSizeMB MB)" -ForegroundColor Green
+if ($desktopApkPath) {
+    Write-Host "  桌面副本: $desktopApkPath" -ForegroundColor Green
+}
 Write-Host ''
