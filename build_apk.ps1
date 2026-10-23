@@ -15,6 +15,44 @@ Write-Host ""
 $PROJECT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $PROJECT_DIR
 
+# ============================================================
+# 签名配置校验：local.properties 缺少 signing.* 或 jks 不存在时直接终止，
+# 避免构建出未签名的 release 包
+# ============================================================
+function Get-LocalProperty([string]$name) {
+    $propsPath = Join-Path $PROJECT_DIR 'local.properties'
+    if (-not (Test-Path -LiteralPath $propsPath)) { return '' }
+    $escaped = [regex]::Escape($name)
+    $line = Select-String -LiteralPath $propsPath -Pattern "^\s*$escaped\s*[=:]" | Select-Object -First 1
+    if (-not $line) { return '' }
+    $raw = $line.Line -replace "^\s*$escaped\s*[=:]\s*", ''
+    return ((($raw -replace '\\:', ':') -replace '\\\\', '\').Trim())
+}
+
+function Assert-SigningConfigured {
+    $keys = @('signing.storeFile', 'signing.storePassword', 'signing.keyAlias', 'signing.keyPassword')
+    $missing = @()
+    foreach ($k in $keys) {
+        if (-not (Get-LocalProperty $k)) { $missing += $k }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Host "[ERROR] local.properties 缺少签名配置: $($missing -join ', ')" -ForegroundColor Red
+        Write-Host "[ERROR] release 包必须签名，已终止（不会构建未签名产物）" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    $storeRaw = Get-LocalProperty 'signing.storeFile'
+    $storePath = if ([System.IO.Path]::IsPathRooted($storeRaw)) { $storeRaw } else { Join-Path (Join-Path $PROJECT_DIR 'app') $storeRaw }
+    $storePath = [System.IO.Path]::GetFullPath($storePath)
+    if (-not (Test-Path -LiteralPath $storePath)) {
+        Write-Host "[ERROR] 签名文件不存在: $storePath (signing.storeFile)" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "  Keystore: $storePath" -ForegroundColor Green
+}
+
 # Extract version info from build.gradle.kts
 Write-Host "[1/4] Reading version info..." -ForegroundColor Yellow
 
@@ -44,6 +82,7 @@ try {
 Write-Host ""
 
 # Execute Gradle build command
+Assert-SigningConfigured
 Write-Host "[2/4] Building APK with Gradle..." -ForegroundColor Yellow
 try {
     & ".\gradlew.bat" "assembleRelease"
@@ -64,11 +103,14 @@ Write-Host ""
 Write-Host "[3/4] Locating generated APK file..." -ForegroundColor Yellow
 $RELEASE_DIR = Join-Path $PROJECT_DIR "app\build\outputs\apk\release"
 $APK_SOURCE = Join-Path $RELEASE_DIR "app-release.apk"
-if (-not (Test-Path $APK_SOURCE)) {
-    $APK_SOURCE = Join-Path $RELEASE_DIR "app-release-unsigned.apk"
-}
 
 if (-not (Test-Path $APK_SOURCE)) {
+    $UNSIGNED_APK = Join-Path $RELEASE_DIR "app-release-unsigned.apk"
+    if (Test-Path $UNSIGNED_APK) {
+        Write-Host "[ERROR] 只产出了未签名包: $UNSIGNED_APK（签名配置未生效），已终止" -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
     Write-Host "[ERROR] APK file not found in: $RELEASE_DIR" -ForegroundColor Red
     Read-Host "Press Enter to exit"
     exit 1

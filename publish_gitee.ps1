@@ -65,6 +65,37 @@ function Get-HttpBody($errorRecord) {
     return $errorRecord.Exception.Message
 }
 
+# 读取 local.properties 中的单个键（处理 Properties 的 \: 与 \\ 转义）
+function Get-LocalProperty([string]$name) {
+    $propsPath = Join-Path $PROJECT_DIR 'local.properties'
+    if (-not (Test-Path -LiteralPath $propsPath)) { return '' }
+    $escaped = [regex]::Escape($name)
+    $line = Select-String -LiteralPath $propsPath -Pattern "^\s*$escaped\s*[=:]" | Select-Object -First 1
+    if (-not $line) { return '' }
+    $raw = $line.Line -replace "^\s*$escaped\s*[=:]\s*", ''
+    return ((($raw -replace '\\:', ':') -replace '\\\\', '\').Trim())
+}
+
+# 构建前强制校验签名配置：缺配置直接终止，不产出未签名 release 包
+function Assert-SigningConfigured {
+    $keys = @('signing.storeFile', 'signing.storePassword', 'signing.keyAlias', 'signing.keyPassword')
+    $missing = @()
+    foreach ($k in $keys) {
+        if (-not (Get-LocalProperty $k)) { $missing += $k }
+    }
+    if ($missing.Count -gt 0) {
+        Fail "local.properties 缺少签名配置：$($missing -join ', ')。release 包必须签名，已终止（不会构建未签名产物）。"
+    }
+
+    $storeRaw = Get-LocalProperty 'signing.storeFile'
+    $storePath = if ([System.IO.Path]::IsPathRooted($storeRaw)) { $storeRaw } else { Join-Path (Join-Path $PROJECT_DIR 'app') $storeRaw }
+    $storePath = [System.IO.Path]::GetFullPath($storePath)
+    if (-not (Test-Path -LiteralPath $storePath)) {
+        Fail "签名文件不存在：$storePath（local.properties 的 signing.storeFile）"
+    }
+    Write-Host "  签名文件: $storePath" -ForegroundColor Green
+}
+
 Write-Host '========================================' -ForegroundColor Cyan
 Write-Host '   打包并发布到 Gitee Release' -ForegroundColor Cyan
 Write-Host '========================================' -ForegroundColor Cyan
@@ -175,7 +206,9 @@ if ($SkipBuild) {
         Fail "找不到已有 APK：$apkPath，去掉 -SkipBuild 重新打包。"
     }
 } else {
-    Write-Step '4/7' '打包 release APK...'
+    Write-Step '4/7' '校验签名配置并打包 release APK...'
+    Assert-SigningConfigured
+
     & '.\gradlew.bat' assembleRelease --console=plain
     if ($LASTEXITCODE -ne 0) {
         Fail "Gradle 打包失败（exit=$LASTEXITCODE）"
@@ -184,9 +217,10 @@ if ($SkipBuild) {
     $releaseDir = Join-Path $PROJECT_DIR 'app\build\outputs\apk\release'
     $builtApk = Join-Path $releaseDir 'app-release.apk'
     if (-not (Test-Path $builtApk)) {
-        $builtApk = Join-Path $releaseDir 'app-release-unsigned.apk'
-    }
-    if (-not (Test-Path $builtApk)) {
+        $unsignedApk = Join-Path $releaseDir 'app-release-unsigned.apk'
+        if (Test-Path $unsignedApk) {
+            Fail "只产出了未签名包：$unsignedApk，签名配置未生效，已终止发布。"
+        }
         Fail "未找到构建产物：$releaseDir"
     }
 
