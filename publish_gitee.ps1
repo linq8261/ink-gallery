@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # 本地打包 + Gitee Release 发布（PowerShell 7）
 # ============================================================
 # 用法：
@@ -6,6 +6,7 @@
 #   .\publish_gitee.ps1 -Tag 20261023-1.0.1-2
 #   .\publish_gitee.ps1 -SkipBuild         # 跳过编译，用已有 APK 重新发布
 #   .\publish_gitee.ps1 -Prerelease        # 标记为预览版
+#   .\publish_gitee.ps1 -SkipServerRegister # 只发 Gitee，不登记 my-server
 #
 # 令牌来源（优先级从高到低）：
 #   1. -Token 参数
@@ -14,9 +15,16 @@
 #      文件内容为 DPAPI(CurrentUser) 加密后的 Base64，格式：
 #      GITEE_TOKEN_DPAPI_V1:<base64>
 #
+# my-server 凭据来源（第 8 步登记版本用，优先级从高到低）：
+#   1. -ServerToken 参数 / 环境变量 MY_SERVER_TOKEN（access token，24h 有效）
+#   2. 账号文件 -ServerCredFile（默认 D:\sync\jks\my-server账号.txt）
+#      内容为 phone|password，或 DPAPI 加密后的 MY_SERVER_LOGIN_DPAPI_V1:<base64>
+#   缺失时只警告并跳过登记，不影响已经成功的 Gitee 发布。
+#
 # 前置条件（脚本只检查，不会替你创建）：
 #   1. tag 已手动创建，本地存在
 #   2. tag 已推送到 gitee 远程
+#   3. my-server 账号需为 admin 角色，否则登记接口返回 403
 # ============================================================
 param(
     [string]$Tag = '',
@@ -26,7 +34,13 @@ param(
     [string]$TokenFile = 'D:\sync\jks\gitee私人令牌.txt',
     [string]$Owner = 'qiantu',
     [string]$Repo = 'ink-gallery',
-    [string]$Remote = 'gitee'
+    [string]$Remote = 'gitee',
+    # 发布完成后顺带在 my-server 登记版本（App 内「检查更新」读的就是这条记录）
+    [switch]$SkipServerRegister,
+    [string]$ServerToken = $env:MY_SERVER_TOKEN,
+    [string]$ServerCredFile = 'D:\sync\jks\my-server账号.txt',
+    [string]$ServerBaseUrl = 'https://203.195.213.233',
+    [string]$PackageName = 'com.ink.gallery'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -107,12 +121,123 @@ function Assert-BuglyConfigured {
     Write-Host "  Bugly AppID: $appId" -ForegroundColor Green
 }
 
+# 读取 my-server 的 access token。
+# 优先级：-ServerToken / 环境变量 MY_SERVER_TOKEN > 账号文件（phone|password，支持 DPAPI 加密）。
+# 任何一步失败都只返回 $null 由调用方警告跳过，不影响已经成功的 Gitee 发布。
+function Get-ServerToken {
+    if ($ServerToken) { return $ServerToken }
+
+    if (-not (Test-Path -LiteralPath $ServerCredFile)) { return $null }
+
+    $raw = (Get-Content -Raw -LiteralPath $ServerCredFile).Trim()
+    if (-not $raw) { return $null }
+
+    if ($raw -match '^MY_SERVER_LOGIN_DPAPI_V1:(.+)$') {
+        $b64 = $matches[1].Trim()
+        try {
+            Add-Type -AssemblyName System.Security.Cryptography.ProtectedData -ErrorAction Stop
+            $plain = [System.Security.Cryptography.ProtectedData]::Unprotect(
+                [Convert]::FromBase64String($b64), $null, 'CurrentUser')
+            $raw = [System.Text.Encoding]::UTF8.GetString($plain).Trim()
+        } catch {
+            Write-Host "  [警告] 服务端账号解密失败：$($_.Exception.Message)" -ForegroundColor DarkYellow
+            return $null
+        }
+    } else {
+        Write-Host '  [警告] 服务端账号文件是明文，建议改为 DPAPI 加密存储' -ForegroundColor DarkYellow
+    }
+
+    $sep = $raw.IndexOf('|')
+    if ($sep -lt 1) {
+        Write-Host "  [警告] 服务端账号文件格式应为 phone|password：$ServerCredFile" -ForegroundColor DarkYellow
+        return $null
+    }
+    $phone = $raw.Substring(0, $sep).Trim()
+    $password = $raw.Substring($sep + 1).Trim()
+
+    try {
+        $loginBody = @{ phone = $phone; password = $password } | ConvertTo-Json -Compress
+        $resp = Invoke-RestMethod -Uri "$ServerBaseUrl/api/v1/auth/login" -Method Post `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($loginBody)) `
+            -ContentType 'application/json' -SkipCertificateCheck
+    } catch {
+        Write-Host "  [警告] 服务端登录失败：$(Get-HttpBody $_)" -ForegroundColor DarkYellow
+        return $null
+    }
+
+    if (-not $resp.data.accessToken) {
+        Write-Host "  [警告] 服务端登录未返回 accessToken：$($resp.message)" -ForegroundColor DarkYellow
+        return $null
+    }
+    return $resp.data.accessToken
+}
+
+# 在 my-server 登记本次版本：App 内「检查更新」读的就是这条记录，
+# 不登记的话线上用户永远看到「已是最新版本」。
+function Register-ServerVersion([string]$updateContent) {
+    if ($SkipServerRegister) {
+        Write-Host '  跳过服务端登记（-SkipServerRegister）' -ForegroundColor DarkGray
+        return
+    }
+
+    $releasePageUrl = "https://gitee.com/$Owner/$Repo/releases/tag/$Tag"
+
+    # 已登记过（或服务端版本更高）就不重复写。404 表示还没有任何记录，继续往下走。
+    try {
+        $latest = Invoke-RestMethod -Uri "$ServerBaseUrl/api/v1/apps/$PackageName/versions/latest" -SkipCertificateCheck
+        $latestCode = 0
+        if ($null -ne $latest.data.versionCode) { $latestCode = [int]$latest.data.versionCode }
+        if ($latestCode -ge [int]$VERSION_CODE) {
+            Write-Host "  服务端已有 $($latest.data.versionName) ($latestCode)，无需重复登记" -ForegroundColor Green
+            return
+        }
+    } catch {
+        # 没有历史记录，属于首次登记
+    }
+
+    $token = Get-ServerToken
+    if (-not $token) {
+        Write-Host '  [警告] 未配置服务端凭据，本次跳过版本登记' -ForegroundColor DarkYellow
+        Write-Host "  [警告] 修复：在 $ServerCredFile 写入 phone|password，或用 -ServerToken / 环境变量 MY_SERVER_TOKEN" -ForegroundColor DarkGray
+        return
+    }
+
+    $payload = @{
+        packageName   = $PackageName
+        versionCode   = [int]$VERSION_CODE
+        versionName   = $VERSION_NAME
+        updateTitle   = '版本更新'
+        updateContent = $updateContent
+        url           = $releasePageUrl
+        fileSize      = "$apkSizeMB MB"
+        isForceUpdate = $false
+    } | ConvertTo-Json
+
+    try {
+        Invoke-RestMethod -Uri "$ServerBaseUrl/api/v1/apps/$PackageName/versions" -Method Post `
+            -Headers @{ Authorization = "Bearer $token" } `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) `
+            -ContentType 'application/json' -SkipCertificateCheck | Out-Null
+    } catch {
+        $status = Get-HttpStatus $_
+        if ($status -eq 403) {
+            Write-Host '  [警告] 服务端登记失败：当前账号不是管理员（HTTP 403）' -ForegroundColor DarkYellow
+        } else {
+            Write-Host "  [警告] 服务端登记失败（HTTP $status）：$(Get-HttpBody $_)" -ForegroundColor DarkYellow
+        }
+        return
+    }
+
+    Write-Host "  已登记：$PackageName $VERSION_NAME ($VERSION_CODE)" -ForegroundColor Green
+    Write-Host "  服务端下载页: $releasePageUrl" -ForegroundColor Green
+}
+
 Write-Host '========================================' -ForegroundColor Cyan
 Write-Host '   打包并发布到 Gitee Release' -ForegroundColor Cyan
 Write-Host '========================================' -ForegroundColor Cyan
 
 # ---------- 1. 确认 tag ----------
-Write-Step '1/7' '检查 tag...'
+Write-Step '1/8' '检查 tag...'
 
 if (-not $Tag) {
     $headTag = & git describe --tags --exact-match 2>$null
@@ -136,7 +261,7 @@ Write-Host "  tag: $Tag" -ForegroundColor Green
 Write-Host "  tag 提交: $($localTag.Trim())" -ForegroundColor DarkGray
 
 # ---------- 2. 版本号与一致性 ----------
-Write-Step '2/7' '读取版本号并校验 tag...'
+Write-Step '2/8' '读取版本号并校验 tag...'
 
 $buildGradle = Get-Content (Join-Path $PROJECT_DIR 'app\build.gradle.kts') -Raw
 if ($buildGradle -notmatch 'versionCode\s*=\s*(\d+)') { Fail 'app/build.gradle.kts 里找不到 versionCode' }
@@ -169,7 +294,7 @@ if ($headSha -ne $localTag.Trim()) {
 }
 
 # ---------- 3. 令牌 ----------
-Write-Step '3/7' '读取 Gitee 令牌...'
+Write-Step '3/8' '读取 Gitee 令牌...'
 
 function Get-TokenFromFile([string]$path) {
     if (-not (Test-Path -LiteralPath $path)) {
@@ -212,12 +337,12 @@ $distDir = Join-Path $PROJECT_DIR 'build\dist'
 $apkPath = Join-Path $distDir $apkName
 
 if ($SkipBuild) {
-    Write-Step '4/7' '跳过打包（-SkipBuild）'
+    Write-Step '4/8' '跳过打包（-SkipBuild）'
     if (-not (Test-Path $apkPath)) {
         Fail "找不到已有 APK：$apkPath，去掉 -SkipBuild 重新打包。"
     }
 } else {
-    Write-Step '4/7' '校验签名与 Bugly 配置并打包 release APK...'
+    Write-Step '4/8' '校验签名与 Bugly 配置并打包 release APK...'
     Assert-SigningConfigured
     Assert-BuglyConfigured
 
@@ -244,7 +369,7 @@ $apkSizeMB = [math]::Round((Get-Item -LiteralPath $apkPath).Length / 1MB, 2)
 Write-Host "  APK: $apkPath ($apkSizeMB MB)" -ForegroundColor Green
 
 # ---------- 5. 创建或复用 Release ----------
-Write-Step '5/7' '创建/复用 Gitee Release...'
+Write-Step '5/8' '创建/复用 Gitee Release...'
 
 $releaseBody = @()
 $releaseBody += '## 版本信息'
@@ -321,7 +446,7 @@ if (-not $releaseId) {
 }
 
 # ---------- 6. 清理同名附件 ----------
-Write-Step '6/7' '清理同名旧附件...'
+Write-Step '6/8' '清理同名旧附件...'
 
 try {
     $attachments = Invoke-RestMethod -Uri "$apiBase/releases/$releaseId/attach_files?access_token=$([uri]::EscapeDataString($Token))&per_page=100&page=1" -Method Get
@@ -345,7 +470,7 @@ foreach ($att in $attachments) {
 Write-Host "  删除同名附件: $removed 个" -ForegroundColor Green
 
 # ---------- 7. 上传 APK ----------
-Write-Step '7/7' '上传 APK...'
+Write-Step '7/8' '上传 APK...'
 
 try {
     $uploaded = Invoke-RestMethod -Uri "$apiBase/releases/$releaseId/attach_files?access_token=$([uri]::EscapeDataString($Token))" -Method Post -Form @{
@@ -369,6 +494,21 @@ try {
     $desktopApkPath = $null
     Write-Host "  [警告] 复制到桌面失败：$($_.Exception.Message)" -ForegroundColor DarkYellow
 }
+
+# ---------- 8. 登记服务端版本 ----------
+Write-Step '8/8' '在 my-server 登记版本...'
+
+# 用本次 tag 区间的提交生成更新说明，跳过「发版：」这类纯版本号提交
+$serverUpdateLines = @()
+foreach ($line in $commits) {
+    $text = ($line -replace '^[0-9a-fA-F]{7,}\s+', '').Trim()
+    if (-not $text) { continue }
+    if ($text -match '^发版[：:]') { continue }
+    $serverUpdateLines += "- $text"
+}
+$serverUpdateContent = if ($serverUpdateLines.Count -gt 0) { $serverUpdateLines -join "`n" } else { '版本更新' }
+
+Register-ServerVersion $serverUpdateContent
 
 Write-Host ''
 Write-Host '========================================' -ForegroundColor Cyan
