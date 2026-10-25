@@ -22,8 +22,8 @@ android {
         applicationId = "com.ink.gallery"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -42,11 +42,13 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            buildConfigField("String", "SERVER_BASE_URL", "\"https://203.195.213.233/\"")
             if (keystorePath != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
         release {
+            buildConfigField("String", "SERVER_BASE_URL", "\"https://203.195.213.233/\"")
             // R8：冷启动的主要成本之一是类加载，dex 缩小后这段能明显缩短。
             // debug 刻意不开：增量编译会变慢，而且启动耗时应该拿 release 包量。
             isMinifyEnabled = true
@@ -68,6 +70,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     kotlinOptions {
@@ -107,6 +110,13 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+
+    // 仅用于「检查更新」：查询版本接口，不涉及照片数据
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+    implementation(libs.gson)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

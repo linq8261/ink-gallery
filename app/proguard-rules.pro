@@ -11,3 +11,11 @@
 # 如果 release 包出现 ClassNotFoundException / NoSuchMethodError 这类 R8 误删问题：
 # 先临时加 -dontobfuscate 定位到具体类，再补精确的 keep 规则。
 # 不要直接 -keep class com.ink.gallery.** { *; } —— 那等于白开 R8。
+
+# ============================================================
+# 检查更新（Retrofit + Gson）
+# ============================================================
+# Gson 靠反射按字段名反序列化，DTO 字段被混淆/裁掉就解析不出数据。
+# DTO 已标 @Keep，这里保留泛型签名属性，否则 ApiResponse<VersionDto> 的泛型信息会丢。
+-keepattributes Signature
+-keepattributes *Annotation*

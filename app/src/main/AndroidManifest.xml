@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 仅用于「检查更新」接口；照片数据全部本地读取 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Android 13+ 读取图片 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <!-- Android 13+ 读取视频 -->
