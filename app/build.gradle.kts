@@ -14,6 +14,13 @@ val localProps = Properties().apply {
 }
 val keystorePath: String? = localProps.getProperty("signing.storeFile")
 
+// Bugly AppID 刻意不进仓库，避免别人 fork 后往同一个 AppID 上报、污染崩溃数据。
+// 本地：写在 local.properties（已在 .gitignore 里）的 bugly.appId。
+// CI：由 .github/workflows/release.yml 从仓库变量注入同名环境变量 BUGLY_APP_ID，
+//     因为该 workflow 会用 > 覆盖 local.properties，光靠它拿不到 AppID。
+val buglyAppId: String = localProps.getProperty("bugly.appId")?.trim()
+    ?: providers.environmentVariable("BUGLY_APP_ID").getOrElse("").trim()
+
 android {
     namespace = "com.ink.gallery"
     compileSdk = 36
@@ -24,6 +31,8 @@ android {
         targetSdk = 36
         versionCode = 5
         versionName = "1.0.4"
+
+        buildConfigField("String", "BUGLY_APP_ID", "\"$buglyAppId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -117,6 +126,9 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.gson)
+
+    // Bugly 崩溃上报（免费版）：只收集崩溃/ANR，不含业务统计与热更新
+    implementation(libs.bugly.crashreport)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

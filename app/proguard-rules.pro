@@ -19,3 +19,10 @@
 # DTO 已标 @Keep，这里保留泛型签名属性，否则 ApiResponse<VersionDto> 的泛型信息会丢。
 -keepattributes Signature
 -keepattributes *Annotation*
+
+# ============================================================
+# Bugly 崩溃上报
+# ============================================================
+# SDK 内部依赖反射与固定类名，被 R8 裁掉不会编译报错，只会静默不上报。
+-dontwarn com.tencent.bugly.**
+-keep public class com.tencent.bugly.**{*;}

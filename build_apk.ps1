@@ -53,6 +53,24 @@ function Assert-SigningConfigured {
     Write-Host "  Keystore: $storePath" -ForegroundColor Green
 }
 
+# ============================================================
+# Bugly AppID 校验：缺失时 release 包不会初始化 Bugly、崩溃静默不上报，
+# 这种失效在本地看不出来，所以宁可构建前直接终止。
+# 读取顺序与 app/build.gradle.kts 保持一致：local.properties → 环境变量
+# ============================================================
+function Assert-BuglyConfigured {
+    $appId = Get-LocalProperty 'bugly.appId'
+    if (-not $appId) { $appId = $env:BUGLY_APP_ID }
+    if (-not $appId) {
+        Write-Host "[ERROR] 缺少 Bugly AppID：local.properties 的 bugly.appId（或环境变量 BUGLY_APP_ID）" -ForegroundColor Red
+        Write-Host "[ERROR] 缺失时 release 包不会上报崩溃，已终止" -ForegroundColor Red
+        Write-Host "[ERROR] 在 local.properties 增加一行：bugly.appId=<Bugly 后台的 AppID>" -ForegroundColor DarkGray
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host "  Bugly AppID: $appId" -ForegroundColor Green
+}
+
 # Extract version info from build.gradle.kts
 Write-Host "[1/4] Reading version info..." -ForegroundColor Yellow
 
@@ -83,6 +101,7 @@ Write-Host ""
 
 # Execute Gradle build command
 Assert-SigningConfigured
+Assert-BuglyConfigured
 Write-Host "[2/4] Building APK with Gradle..." -ForegroundColor Yellow
 try {
     & ".\gradlew.bat" "assembleRelease"

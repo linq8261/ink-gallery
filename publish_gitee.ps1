@@ -96,6 +96,17 @@ function Assert-SigningConfigured {
     Write-Host "  签名文件: $storePath" -ForegroundColor Green
 }
 
+# 构建前强制校验 Bugly AppID：缺失时 release 包不会上报崩溃（静默失效），直接终止。
+# 读取顺序与 app/build.gradle.kts 一致：local.properties → 环境变量
+function Assert-BuglyConfigured {
+    $appId = Get-LocalProperty 'bugly.appId'
+    if (-not $appId) { $appId = $env:BUGLY_APP_ID }
+    if (-not $appId) {
+        Fail "缺少 Bugly AppID：local.properties 的 bugly.appId（或环境变量 BUGLY_APP_ID）。缺失时 release 包不会上报崩溃，已终止。请在 local.properties 增加一行：bugly.appId=<Bugly 后台的 AppID>"
+    }
+    Write-Host "  Bugly AppID: $appId" -ForegroundColor Green
+}
+
 Write-Host '========================================' -ForegroundColor Cyan
 Write-Host '   打包并发布到 Gitee Release' -ForegroundColor Cyan
 Write-Host '========================================' -ForegroundColor Cyan
@@ -206,8 +217,9 @@ if ($SkipBuild) {
         Fail "找不到已有 APK：$apkPath，去掉 -SkipBuild 重新打包。"
     }
 } else {
-    Write-Step '4/7' '校验签名配置并打包 release APK...'
+    Write-Step '4/7' '校验签名与 Bugly 配置并打包 release APK...'
     Assert-SigningConfigured
+    Assert-BuglyConfigured
 
     & '.\gradlew.bat' assembleRelease --console=plain
     if ($LASTEXITCODE -ne 0) {

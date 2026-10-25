@@ -2,6 +2,7 @@ package com.ink.gallery
 
 import android.app.Application
 import android.os.Build
+import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
@@ -12,6 +13,7 @@ import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import com.ink.gallery.data.repository.PhotoRepository
 import com.ink.gallery.data.repository.TrashRepository
+import com.tencent.bugly.crashreport.CrashReport
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,13 +36,36 @@ class InkGalleryApplication : Application(), ImageLoaderFactory {
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private companion object {
+        const val LOG_TAG = "InkGallery"
+    }
+
     override fun onCreate() {
         super.onCreate()
+        // 只在 release 上报：debug 期间的崩溃会混进正式数据，拉偏崩溃率。
+        // 放最前面是因为初始化之前发生的崩溃捕获不到。
+        if (!BuildConfig.DEBUG) initCrashReporting()
         photoRepository.warmUp()
         // 回收站保留 30 天：每次启动清一次过期条目（含文件本体）
         appScope.launch {
             runCatching { trashRepository.purgeExpired() }
         }
+    }
+
+    /**
+     * Bugly 崩溃上报（免费版，只报崩溃/ANR，不采集照片等业务数据）。
+     *
+     * AppID 由 local.properties（本地）/ 环境变量 BUGLY_APP_ID（CI）注入到 BuildConfig；
+     * 没配置就整体跳过，避免拿空 AppID 去做无效上报。
+     * debugMode 固定 false：调用点已限定 release，批量上报即可，不必每条崩溃一次请求。
+     */
+    private fun initCrashReporting() {
+        val appId = BuildConfig.BUGLY_APP_ID
+        if (appId.isEmpty()) {
+            Log.w(LOG_TAG, "未配置 bugly.appId，崩溃上报已跳过")
+            return
+        }
+        CrashReport.initCrashReport(applicationContext, appId, false)
     }
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)

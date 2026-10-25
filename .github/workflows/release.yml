@@ -70,6 +70,11 @@ jobs:
           gradle-version: '8.10.2'
 
       - name: 还原签名配置
+        env:
+          # 取自仓库变量（Settings → Secrets and variables → Actions → Variables）；
+          # 兼容配在 Secrets 里的情况，两者都有值时以 vars 为准。
+          # 选 Variables 是因为 AppID 会打进 APK，本身不是密钥，放 Secrets 只会让日志排查更麻烦。
+          BUGLY_APP_ID: ${{ vars.BUGLY_APP_ID || secrets.BUGLY_APP_ID }}
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
           if [ ! -s keystore.jks ]; then
@@ -77,12 +82,17 @@ jobs:
             exit 1
           fi
           ls -l keystore.jks
+          if [ -z "$BUGLY_APP_ID" ]; then
+            echo "::warning::仓库变量 BUGLY_APP_ID 未配置，本次构建的 APK 不会上报崩溃"
+          fi
           # app/build.gradle.kts 里 storeFile = file(keystorePath)，相对路径是按 :app 模块目录解析的，
           # 所以必须写 ../keystore.jks 才能指到仓库根目录下刚还原出来的这个文件
-          printf 'signing.storeFile=../keystore.jks\nsigning.storePassword=%s\nsigning.keyAlias=%s\nsigning.keyPassword=%s\n' \
-            '${{ secrets.KEYSTORE_PASSWORD }}' '${{ secrets.KEY_ALIAS }}' '${{ secrets.KEY_PASSWORD }}' \
+          printf 'signing.storeFile=../keystore.jks\nsigning.storePassword=%s\nsigning.keyAlias=%s\nsigning.keyPassword=%s\nbugly.appId=%s\n' \
+            '${{ secrets.KEYSTORE_PASSWORD }}' '${{ secrets.KEY_ALIAS }}' '${{ secrets.KEY_PASSWORD }}' "$BUGLY_APP_ID" \
             > local.properties
           sed 's/Password=.*/Password=***/' local.properties
+          # 单独打印状态：空值打码成 *** 会看不出到底配没配
+          if [ -n "$BUGLY_APP_ID" ]; then echo "bugly.appId: 已注入"; else echo "bugly.appId: 未配置"; fi
 
       - name: 构建 release APK
         run: |
