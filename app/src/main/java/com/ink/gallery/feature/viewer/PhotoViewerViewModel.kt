@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ink.gallery.data.live.LiveInfo
 import com.ink.gallery.data.live.LivePhotoRepository
+import com.ink.gallery.data.live.MotionPhotoConverter
+import com.ink.gallery.data.live.StaticExportResult
 import com.ink.gallery.data.model.Bucket
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.data.repository.BucketRepository
@@ -37,7 +39,8 @@ class PhotoViewerViewModel @Inject constructor(
     private val repository: PhotoRepository,
     private val bucketRepository: BucketRepository,
     private val trashRepository: TrashRepository,
-    private val livePhotoRepository: LivePhotoRepository
+    private val livePhotoRepository: LivePhotoRepository,
+    private val liveConverter: MotionPhotoConverter
 ) : ViewModel() {
 
     private val photoId: Long = savedStateHandle.get<Long>(NavRoutes.ARG_PHOTO_ID) ?: -1L
@@ -60,6 +63,10 @@ class PhotoViewerViewModel @Inject constructor(
     /** 没有「所有文件访问权限」时置位，由界面弹引导框 */
     private val _needFullAccess = MutableStateFlow(false)
     val needFullAccess: StateFlow<Boolean> = _needFullAccess.asStateFlow()
+
+    /** 正在导出静态副本：菜单项据此禁用，避免连点生成一堆副本 */
+    private val _isExporting = MutableStateFlow(false)
+    val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
 
     private var pendingMove: Pair<PhotoItem, Bucket>? = null
 
@@ -144,6 +151,32 @@ class PhotoViewerViewModel @Inject constructor(
 
     fun consumeNeedFullAccess() {
         _needFullAccess.value = false
+    }
+
+    /**
+     * 把实况图另存成一份去掉内嵌视频的静态图（原图不动）。
+     *
+     * 跑在 viewModelScope 里：导出期间翻页或退出详情页都不会中断。
+     * [photo] / [info] 由界面在点击那一刻取快照传进来，避免这里重新读当前页拿到别的图。
+     */
+    fun exportStatic(photo: PhotoItem, info: LiveInfo) {
+        if (_isExporting.value) return
+        viewModelScope.launch {
+            _isExporting.value = true
+            val result = runCatching { liveConverter.exportStatic(photo, info) }
+                .getOrElse { StaticExportResult.Failed("导出失败") }
+            _isExporting.value = false
+            when (result) {
+                is StaticExportResult.Success -> {
+                    // 副本不是实况，直接记成负结果，省掉后台探测一次
+                    result.newId?.let { livePhotoRepository.markNotLive(it) }
+                    _message.value = "已保存「${result.displayName}」"
+                }
+
+                StaticExportResult.NotLive -> _message.value = "原图已不是实况图"
+                is StaticExportResult.Failed -> _message.value = result.message
+            }
+        }
     }
 
     /**

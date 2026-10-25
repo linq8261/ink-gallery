@@ -124,7 +124,8 @@ class MotionPhotoParser @Inject constructor(
         return null
     }
 
-    private fun hasFtypAt(uri: Uri, offset: Long): Boolean {
+    /** 校验该位置确实是 `ftyp`：导出静态副本前也要用它确认缓存没过期 */
+    internal fun hasFtypAt(uri: Uri, offset: Long): Boolean {
         if (offset < 0) return false
         val head = readAt(uri, offset, 12L) ?: return false
         if (head.size < 8) return false
@@ -156,7 +157,7 @@ class MotionPhotoParser @Inject constructor(
         }
     }
 
-    private fun fileSize(uri: Uri): Long? = runCatching {
+    internal fun fileSize(uri: Uri): Long? = runCatching {
         resolver.openAssetFileDescriptor(uri, "r")?.use { it.length.takeIf { size -> size > 0 } }
     }.getOrNull()
 

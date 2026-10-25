@@ -79,6 +79,7 @@ fun PhotoViewerScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val needFullAccess by viewModel.needFullAccess.collectAsStateWithLifecycle()
     val livePhotos by viewModel.livePhotos.collectAsStateWithLifecycle()
+    val isExporting by viewModel.isExporting.collectAsStateWithLifecycle()
     val context = LocalContext.current
     // 删除依赖「所有文件访问权限」，没有时删除按钮置灰并引导
     val hasFullAccess = rememberHasFullAccess()
@@ -260,7 +261,20 @@ fun PhotoViewerScreen(
                         fullAccessGuideVisible = true
                     }
                 },
-                deleteEnabled = hasFullAccess
+                deleteEnabled = hasFullAccess,
+                // 与相册页角标同一份判断：livePhotos 里有的才是实况图
+                exportStaticEnabled = currentPhoto?.let { livePhotos.containsKey(it.id) } == true,
+                exporting = isExporting,
+                onExportStatic = {
+                    // 取点击那一刻的图和信息：导出期间用户可能已经翻到别的页
+                    val photo = currentPhoto
+                    val info = photo?.let { livePhotos[it.id] }
+                    if (photo != null && info != null) {
+                        // 先停播，别让播放器还占着这张图的 fd
+                        livePressing = null
+                        viewModel.exportStatic(photo, info)
+                    }
+                }
             )
         }
 

@@ -103,6 +103,20 @@ class LivePhotoRepository @Inject constructor(
         return parseAndRecord(photo)
     }
 
+    /**
+     * 已知某张图不是实况（例如刚导出的静态副本）：记成负结果，省掉后台再读一次文件。
+     * 与 [resolveNow] 共用同一份缓存，相册角标与详情页菜单会立刻跟着变。
+     */
+    suspend fun markNotLive(photoId: Long) {
+        if (photoId <= 0) return
+        restored.await()
+        pending.remove(photoId)
+        val wasLive = detected.remove(photoId) != null
+        notLive.add(photoId)
+        if (wasLive) _livePhotos.value = detected.toMap()
+        schedulePersist()
+    }
+
     private suspend fun parseAndRecord(photo: PhotoItem): LiveInfo? {
         val info = runCatching { parser.parse(photo) }.getOrNull()
         pending.remove(photo.id)

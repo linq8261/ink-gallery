@@ -154,7 +154,9 @@ private fun createPlayer(
         )
 
     return ExoPlayer.Builder(context).build().apply {
-        volume = 0f
+        // 出声：跟随系统媒体音量。注意系统「静音/振动」不会自动压掉这里的声音，
+        // 需要连音频一起静音时再按 AudioManager.ringerMode 判断。
+        volume = 1f
         repeatMode = Player.REPEAT_MODE_OFF
         setMediaSource(mediaSource)
         prepare()

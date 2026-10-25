@@ -38,7 +38,15 @@ fun PhotoViewerToolbar(
      * 删除依赖「所有文件访问权限」。没有权限时图标置灰，
      * 点击仍会触发 [onDelete]，由界面弹引导框而不是静默无反应。
      */
-    deleteEnabled: Boolean = true
+    deleteEnabled: Boolean = true,
+    /**
+     * 「转为静态图」只对实况图有意义：非实况（以及探测还没回来）时菜单项置灰，
+     * 让用户知道有这功能、只是这张图用不上。
+     */
+    exportStaticEnabled: Boolean = false,
+    /** 导出中：菜单项文字变成进度提示并禁用，避免连点生成一堆副本 */
+    exporting: Boolean = false,
+    onExportStatic: () -> Unit = {}
 ) {
     var moreExpanded by remember { mutableStateOf(false) }
 
@@ -74,8 +82,12 @@ fun PhotoViewerToolbar(
                 onDismissRequest = { moreExpanded = false }
             ) {
                 DropdownMenuItem(
-                    text = { Text("测试") },
-                    onClick = { moreExpanded = false }
+                    text = { Text(if (exporting) "正在导出…" else "转为静态图") },
+                    onClick = {
+                        moreExpanded = false
+                        onExportStatic()
+                    },
+                    enabled = exportStaticEnabled && !exporting
                 )
             }
         }
