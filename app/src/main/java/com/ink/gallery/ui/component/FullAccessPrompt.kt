@@ -3,6 +3,7 @@ package com.ink.gallery.ui.component
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -116,28 +117,35 @@ fun FullAccessBanner(modifier: Modifier = Modifier) {
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || hasAccess || dismissed) return
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.secondaryContainer)
-            .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "未开启「所有文件访问权限」，移动目标受限",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.weight(1f)
-        )
-        TextButton(onClick = { StorageAccess.openSettings(context) }) {
-            Text("去开启")
-        }
-        IconButton(onClick = { dismissed = true }) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "关闭提示",
-                tint = MaterialTheme.colorScheme.onSecondaryContainer
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "未开启「所有文件访问权限」，移动目标受限",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
             )
+            TextButton(onClick = { StorageAccess.openSettings(context) }) {
+                Text("去开启")
+            }
+            IconButton(onClick = { dismissed = true }) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "关闭提示",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
+        // 一笔墨线收边，避免提示条和宣纸底糊在一起
+        InkBrushDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

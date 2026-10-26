@@ -8,8 +8,13 @@
         <item name="postSplashScreenTheme">@style/Theme.InkGallery</item>
     </style>
 
-    <!-- 首帧上屏后真正生效的主题 -->
+    <!-- 首帧上屏后真正生效的主题。
+         水墨风是浅色顶栏，系统栏必须配深色前景，否则状态栏的白图标在宣纸底色上看不见。 -->
     <style name="Theme.InkGallery" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/ink_background</item>
+        <item name="android:statusBarColor">@color/ink_background</item>
+        <item name="android:navigationBarColor">@color/ink_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

@@ -23,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -32,7 +31,10 @@ import coil.compose.AsyncImage
 import coil.decode.BitmapFactoryDecoder
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.PhotoItem
-import com.ink.gallery.ui.theme.InkTitleBar
+import com.ink.gallery.ui.theme.InkCinnabar
+import com.ink.gallery.ui.theme.InkInk
+import com.ink.gallery.ui.theme.InkPaper
+import com.ink.gallery.ui.theme.InkViewerBlack
 import com.ink.gallery.util.formatDuration
 
 @Composable
@@ -76,12 +78,12 @@ fun PhotoThumbnail(
 
         if (selectionActive) {
             if (selected) {
-                // 选中遮罩：黑色半透明覆盖 + 同色描边，比只换圆圈角标醒目得多
+                // 选中遮罩：淡墨半透明覆盖 + 朱砂细描边，像在照片上盖了一方印
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .border(2.dp, InkTitleBar, RectangleShape)
+                        .background(InkInk.copy(alpha = 0.34f))
+                        .border(2.dp, InkCinnabar, RectangleShape)
                 )
             }
             SelectionBadge(
@@ -97,32 +99,32 @@ fun PhotoThumbnail(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(4.dp)
-                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                    .background(InkViewerBlack.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
                     .padding(horizontal = 4.dp, vertical = 1.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = InkPaper,
                     modifier = Modifier.size(11.dp)
                 )
                 Text(
                     text = formatDuration(photo.durationMs),
-                    color = Color.White,
+                    color = InkPaper,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
         } else if (isGif) {
             Text(
                 text = "GIF",
-                color = Color.White,
+                color = InkPaper,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(4.dp)
                     .background(
-                        color = Color.Black.copy(alpha = 0.55f),
+                        color = InkViewerBlack.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(4.dp)
                     )
                     .padding(horizontal = 4.dp, vertical = 1.dp)
@@ -133,13 +135,13 @@ fun PhotoThumbnail(
         if (live) {
             Text(
                 text = "LIVE",
-                color = Color.White,
+                color = InkPaper,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(4.dp)
                     .background(
-                        color = Color.Black.copy(alpha = 0.55f),
+                        color = InkViewerBlack.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(4.dp)
                     )
                     .padding(horizontal = 4.dp, vertical = 1.dp)
@@ -159,20 +161,20 @@ private fun SelectionBadge(
             .clip(CircleShape)
             .background(
                 if (selected) {
-                    // 与页面标题栏同色，多选时的视觉主线保持一致
-                    InkTitleBar
+                    // 选中用朱砂，整个 App 里唯一的彩色就是这里和选中描边
+                    InkCinnabar
                 } else {
-                    Color.Black.copy(alpha = 0.25f)
+                    InkInk.copy(alpha = 0.3f)
                 }
             )
-            .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+            .border(1.5.dp, InkPaper.copy(alpha = 0.9f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
         if (selected) {
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = null,
-                tint = Color.White,
+                tint = InkPaper,
                 modifier = Modifier.size(13.dp)
             )
         }

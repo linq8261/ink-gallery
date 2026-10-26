@@ -8,5 +8,9 @@
 
     <style name="Theme.InkGallery" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/ink_background</item>
+        <item name="android:statusBarColor">@color/ink_background</item>
+        <item name="android:navigationBarColor">@color/ink_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

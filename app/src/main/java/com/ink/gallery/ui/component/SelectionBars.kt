@@ -1,5 +1,6 @@
 package com.ink.gallery.ui.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,10 +32,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.ink.gallery.ui.theme.InkCinnabar
 import com.ink.gallery.ui.theme.InkTitleBar
 import com.ink.gallery.ui.theme.InkTitleBarContent
 
-/** 选择模式顶栏：退出 + 已选数量 + 全选/取消全选 */
+/** 选择模式顶栏：退出 + 已选数量 + 全选/取消全选。与 [AppTopBar] 同一套水墨样式 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelectionTopBar(
@@ -43,31 +45,34 @@ fun SelectionTopBar(
     onExit: () -> Unit,
     onToggleSelectAll: () -> Unit
 ) {
-    TopAppBar(
-        title = { Text("已选 $count 项") },
-        navigationIcon = {
-            IconButton(onClick = onExit) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "退出选择"
-                )
-            }
-        },
-        actions = {
-            TextButton(
-                onClick = onToggleSelectAll,
-                colors = ButtonDefaults.textButtonColors(contentColor = InkTitleBarContent)
-            ) {
-                Text(if (allSelected) "取消全选" else "全选")
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = InkTitleBar,
-            titleContentColor = InkTitleBarContent,
-            navigationIconContentColor = InkTitleBarContent,
-            actionIconContentColor = InkTitleBarContent
+    Column(modifier = Modifier.background(InkTitleBar)) {
+        TopAppBar(
+            title = { Text("已选 $count 项") },
+            navigationIcon = {
+                IconButton(onClick = onExit) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "退出选择"
+                    )
+                }
+            },
+            actions = {
+                TextButton(
+                    onClick = onToggleSelectAll,
+                    colors = ButtonDefaults.textButtonColors(contentColor = InkCinnabar)
+                ) {
+                    Text(if (allSelected) "取消全选" else "全选")
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = InkTitleBar,
+                titleContentColor = InkTitleBarContent,
+                navigationIconContentColor = InkTitleBarContent,
+                actionIconContentColor = InkTitleBarContent
+            )
         )
-    )
+        InkBrushDivider()
+    }
 }
 
 /** 底部操作栏里的一个按钮 */
@@ -87,24 +92,27 @@ fun SelectionBottomBar(
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 3.dp
+        color = MaterialTheme.colorScheme.surface
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            actions.forEach { action ->
-                ToolbarAction(
-                    icon = action.icon,
-                    label = action.label,
-                    onClick = action.onClick,
-                    enabled = action.enabled
-                )
+        Column {
+            // 与顶栏同一笔墨线，上下呼应
+            InkBrushDivider()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                actions.forEach { action ->
+                    ToolbarAction(
+                        icon = action.icon,
+                        label = action.label,
+                        onClick = action.onClick,
+                        enabled = action.enabled
+                    )
+                }
             }
         }
     }

@@ -51,7 +51,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +61,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ink.gallery.data.live.LiveInfo
 import com.ink.gallery.data.model.PhotoItem
 import com.ink.gallery.ui.component.rememberHasFullAccess
+import com.ink.gallery.ui.theme.InkPaper
+import com.ink.gallery.ui.theme.InkViewerBlack
 import com.ink.gallery.util.DateFormatter
 import com.ink.gallery.util.StorageAccess
 import com.ink.gallery.util.formatDuration
@@ -134,11 +135,11 @@ fun PhotoViewerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black),
+                .background(InkViewerBlack),
             contentAlignment = Alignment.Center
         ) {
             if (uiState.isLoading) {
-                CircularProgressIndicator(color = Color.White)
+                CircularProgressIndicator(color = InkPaper)
             }
         }
         return
@@ -159,7 +160,7 @@ fun PhotoViewerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(InkViewerBlack)
             // 上滑唤出详情：放大或正在播实况时禁用，避免与拖拽冲突
             .pointerInput(zoomed, livePressing) {
                 if (zoomed || livePressing != null) return@pointerInput
@@ -223,7 +224,7 @@ fun PhotoViewerScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.45f))
+                    .background(InkViewerBlack.copy(alpha = 0.45f))
                     .statusBarsPadding()
                     .padding(horizontal = 4.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -232,13 +233,13 @@ fun PhotoViewerScreen(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        tint = Color.White
+                        tint = InkPaper
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = "${pagerState.currentPage + 1} / ${photos.size}",
-                    color = Color.White,
+                    color = InkPaper,
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.weight(1f))
@@ -286,7 +287,7 @@ fun PhotoViewerScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f))
+                    .background(InkViewerBlack.copy(alpha = 0.5f))
                     .clickable(
                         interactionSource = null,
                         indication = null
@@ -375,7 +376,7 @@ private fun PhotoDetailsSheet(
                 )
             },
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp),
         tonalElevation = 3.dp
     ) {
         Column(

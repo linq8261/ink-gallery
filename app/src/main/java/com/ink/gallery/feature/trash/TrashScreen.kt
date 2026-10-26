@@ -41,7 +41,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +58,8 @@ import com.ink.gallery.ui.component.SelectionBottomBar
 import com.ink.gallery.ui.component.SelectionTopBar
 import com.ink.gallery.ui.component.gridDragSelect
 import com.ink.gallery.ui.component.rememberSelectionState
+import com.ink.gallery.ui.theme.InkPaper
+import com.ink.gallery.ui.theme.InkViewerBlack
 import com.ink.gallery.util.formatFileSize
 import java.io.File
 import kotlin.math.ceil
@@ -210,13 +211,13 @@ fun TrashScreen(
                             )
                             Text(
                                 text = "剩 ${remainingDays(entry)} 天",
-                                color = Color.White,
+                                color = InkPaper,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(4.dp)
                                     .background(
-                                        color = Color.Black.copy(alpha = 0.55f),
+                                        color = InkViewerBlack.copy(alpha = 0.55f),
                                         shape = RoundedCornerShape(4.dp)
                                     )
                                     .padding(horizontal = 4.dp, vertical = 1.dp)

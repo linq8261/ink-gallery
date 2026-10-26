@@ -1,5 +1,7 @@
 package com.ink.gallery.ui.component
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
@@ -12,7 +14,8 @@ import com.ink.gallery.ui.theme.InkTitleBar
 import com.ink.gallery.ui.theme.InkTitleBarContent
 
 /**
- * 全应用统一的页面标题栏：暗紫底色，标题使用浅紫白。
+ * 全应用统一的页面标题栏：宣纸底 + 墨字，底边压一笔浓淡变化的墨线，
+ * 像宣纸上题完字落的那一横。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,22 +25,25 @@ fun AppTopBar(
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    TopAppBar(
-        title = {
-            Text(
-                text = title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+    Column(modifier = modifier.background(InkTitleBar)) {
+        TopAppBar(
+            title = {
+                Text(
+                    text = title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            navigationIcon = navigationIcon,
+            actions = actions,
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = InkTitleBar,
+                titleContentColor = InkTitleBarContent,
+                navigationIconContentColor = InkTitleBarContent,
+                actionIconContentColor = InkTitleBarContent
             )
-        },
-        modifier = modifier,
-        navigationIcon = navigationIcon,
-        actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = InkTitleBar,
-            titleContentColor = InkTitleBarContent,
-            navigationIconContentColor = InkTitleBarContent,
-            actionIconContentColor = InkTitleBarContent
         )
-    )
+        // 起笔轻、收笔淡的一笔墨线，比均匀实线更有书写感
+        InkBrushDivider()
+    }
 }

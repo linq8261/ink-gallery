@@ -23,9 +23,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.ink.gallery.ui.component.ToolbarAction
+import com.ink.gallery.ui.theme.InkPaper
+import com.ink.gallery.ui.theme.InkViewerBlack
 
 @Composable
 fun PhotoViewerToolbar(
@@ -53,21 +54,21 @@ fun PhotoViewerToolbar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.Black.copy(alpha = 0.45f))
+            .background(InkViewerBlack.copy(alpha = 0.45f))
             .navigationBarsPadding()
             .padding(vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 与多选底部操作栏共用同一个 ToolbarAction，两处按钮观感一致
-        ToolbarAction(icon = Icons.Outlined.Edit, label = "编辑", onClick = onEdit, tint = Color.White)
-        ToolbarAction(icon = Icons.Outlined.Share, label = "分享", onClick = onShare, tint = Color.White)
-        ToolbarAction(icon = Icons.Outlined.FolderOpen, label = "移动", onClick = onMove, tint = Color.White)
+        ToolbarAction(icon = Icons.Outlined.Edit, label = "编辑", onClick = onEdit, tint = InkPaper)
+        ToolbarAction(icon = Icons.Outlined.Share, label = "分享", onClick = onShare, tint = InkPaper)
+        ToolbarAction(icon = Icons.Outlined.FolderOpen, label = "移动", onClick = onMove, tint = InkPaper)
         ToolbarAction(
             icon = Icons.Outlined.Delete,
             label = "删除",
             onClick = onDelete,
-            tint = Color.White,
+            tint = InkPaper,
             enabled = deleteEnabled
         )
         Box {
@@ -75,7 +76,7 @@ fun PhotoViewerToolbar(
                 icon = Icons.Outlined.MoreHoriz,
                 label = "更多",
                 onClick = { moreExpanded = true },
-                tint = Color.White
+                tint = InkPaper
             )
             DropdownMenu(
                 expanded = moreExpanded,

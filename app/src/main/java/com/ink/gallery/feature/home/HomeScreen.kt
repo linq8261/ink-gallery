@@ -57,8 +57,8 @@ import com.ink.gallery.ui.component.SelectionBottomBar
 import com.ink.gallery.ui.component.SelectionTopBar
 import com.ink.gallery.ui.component.rememberHasFullAccess
 import com.ink.gallery.ui.component.rememberSelectionState
-import com.ink.gallery.ui.theme.InkTitleBar
-import com.ink.gallery.ui.theme.InkTitleBarContent
+import com.ink.gallery.ui.theme.InkHairline
+import com.ink.gallery.ui.theme.InkInk
 import com.ink.gallery.util.StorageAccess
 
 private const val PAGE_COUNT = 2
@@ -261,8 +261,8 @@ private fun PageIndicator(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(4.dp)
-            .background(InkTitleBar)
+            .height(3.dp)
+            .background(InkHairline)
     ) {
         val segmentWidth = maxWidth / pageCount
         val position = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
@@ -273,8 +273,8 @@ private fun PageIndicator(
                 .width(segmentWidth)
                 .fillMaxHeight()
                 .offset(x = segmentWidth * position)
-                // 底色已与标题栏同色，指示段必须用标题栏的前景色，否则低对比度看不清
-                .background(InkTitleBarContent)
+                // 当前页用整块浓墨，和极淡墨线底形成明确的墨色差
+                .background(InkInk)
         )
     }
 }

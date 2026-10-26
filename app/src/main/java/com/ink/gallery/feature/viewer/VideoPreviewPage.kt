@@ -22,13 +22,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ink.gallery.data.model.PhotoItem
+import com.ink.gallery.ui.theme.InkPaper
+import com.ink.gallery.ui.theme.InkViewerBlack
 import com.ink.gallery.util.formatDuration
 
 /**
@@ -68,14 +69,14 @@ fun VideoPreviewPage(
             Surface(
                 onClick = onPlay,
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.45f),
+                color = InkViewerBlack.copy(alpha = 0.45f),
                 modifier = Modifier.size(76.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Filled.PlayArrow,
                         contentDescription = "播放",
-                        tint = Color.White,
+                        tint = InkPaper,
                         modifier = Modifier.size(44.dp)
                     )
                 }
@@ -84,7 +85,7 @@ fun VideoPreviewPage(
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = formatDuration(photo.durationMs),
-                    color = Color.White.copy(alpha = 0.9f)
+                    color = InkPaper.copy(alpha = 0.9f)
                 )
             }
         }
