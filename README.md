@@ -2,6 +2,12 @@
 
 Android 本地相册应用，Kotlin + Jetpack Compose，纯本地 MediaStore 读取，不联网。
 
+## 📥 下载安装（APK）
+
+**👉 [点击这里进入 Release 页面下载 APK](https://gitee.com/qiantu/ink-gallery/releases)**
+
+> 手机浏览器打开码云仓库首页不显示 Release 入口，请直接使用上面这个链接，选择最新版本的 `.apk` 附件下载安装即可（安装前需允许「安装未知来源应用」）。
+
 ## 截图
 
 | 相册页 | 相片页 |
